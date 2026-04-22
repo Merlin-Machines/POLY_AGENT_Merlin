@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POLY AGENT // MANAGER</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#04080f;
+      --bg2:#08111d;
+      --bg3:#0c182b;
+      --panel:#0a1321;
+      --border:#143055;
+      --accent:#0af;
+      --accent-soft:rgba(0,170,255,.14);
+      --green:#00ff9d;
+      --gold:#ffd060;
+      --red:#ff4068;
+      --dim:#385b84;
+      --text:#94bcdc;
+      --bright:#d8efff;
+      --mono:'DM Mono', monospace;
+      --display:'Orbitron', sans-serif;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:radial-gradient(circle at top, rgba(0,170,255,.06), transparent 34%), var(--bg);color:var(--text);font-family:var(--mono)}
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      background-image:
+        linear-gradient(rgba(0,170,255,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,170,255,.03) 1px, transparent 1px);
+      background-size:40px 40px;
+      opacity:.8;
+      z-index:0;
+    }
+    .shell{
+      position:relative;
+      z-index:1;
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+    }
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      gap:20px;
+      align-items:flex-start;
+      padding:16px 22px 14px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(0,170,255,.08), transparent);
+    }
+    .brand{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+    }
+    .logo{
+      font-family:var(--display);
+      font-size:18px;
+      font-weight:900;
+      letter-spacing:4px;
+      color:var(--accent);
+      text-shadow:0 0 20px rgba(0,170,255,.4);
+    }
+    .logo em{font-style:normal;color:var(--green)}
+    .subline,.wallet{
+      color:var(--dim);
+      font-size:10px;
+      letter-spacing:1.3px;
+      text-transform:uppercase;
+      word-break:break-all;
+    }
+    .top-controls{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      gap:14px 18px;
+      align-items:center;
+    }
+    .control{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:10px;
+      letter-spacing:1.4px;
+      color:var(--dim);
+      text-transform:uppercase;
+    }
+    .dot{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:var(--green);
+      box-shadow:0 0 14px var(--green);
+      animation:pulse 1.5s infinite;
+    }
+    @keyframes pulse{
+      0%,100%{opacity:1}
+      50%{opacity:.35}
+    }
+    .mode-label{
+      font-family:var(--display);
+      color:var(--green);
+      letter-spacing:3px;
+      font-size:10px;
+    }
+    .btn,.field,.area,.select{
+      background:var(--bg3);
+      border:1px solid var(--border);
+      color:var(--bright);
+      font-family:var(--mono);
+      font-size:11px;
+    }
+    .btn{
+      padding:8px 12px;
+      cursor:pointer;
+      letter-spacing:1px;
+      text-transform:uppercase;
+      transition:border-color .15s ease, color .15s ease, background .15s ease;
+    }
+    .btn:hover{border-color:var(--accent);color:var(--accent)}
+    .btn.strong{border-color:rgba(0,255,157,.35);color:var(--green)}
+    .btn.warn{border-color:rgba(255,208,96,.35);color:var(--gold)}
+    .select,.field{
+      padding:8px 10px;
+      min-height:34px;
+    }
+    .area{
+      width:100%;
+      min-height:118px;
+      padding:10px 12px;
+      resize:vertical;
+      line-height:1.45;
+    }
+    .refresh-line{
+      height:2px;
+      background:rgba(20,48,85,.8);
+      position:relative;
+      overflow:hidden;
+    }
+    .refresh-fill{
+      position:absolute;
+      inset:0 auto 0 0;
+      width:0%;
+      background:linear-gradient(90deg, var(--accent), rgba(0,255,157,.6));
+      opacity:.6;
+    }
+    .grid{
+      flex:1;
+      display:grid;
+      grid-template-columns:minmax(260px, 300px) minmax(440px, 1fr) minmax(320px, 420px);
+      gap:1px;
+      background:var(--border);
+      min-height:0;
+    }
+    .rail{
+      background:var(--bg);
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+      overflow:auto;
+    }
+    .panel{
+      background:linear-gradient(180deg, rgba(10,19,33,.98), rgba(8,17,29,.98));
+      border-bottom:1px solid rgba(20,48,85,.7);
+      padding:16px;
+    }
+    .title{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-bottom:12px;
+      font-family:var(--display);
+      color:var(--dim);
+      font-size:9px;
+      letter-spacing:3px;
+      text-transform:uppercase;
+    }
+    .title::after{
+      content:"";
+      height:1px;
+      flex:1;
+      background:linear-gradient(90deg, var(--border), transparent);
+    }
+    .price-stack{display:grid;gap:12px}
+    .price-card{
+      background:rgba(12,24,43,.8);
+      border:1px solid rgba(20,48,85,.8);
+      padding:12px;
+    }
+    .price-sym{
+      color:var(--dim);
+      letter-spacing:2px;
+      font-size:10px;
+      margin-bottom:4px;
+      text-transform:uppercase;
+    }
+    .price-val{
+      font-family:var(--display);
+      font-size:28px;
+      line-height:1;
+      color:var(--bright);
+    }
+    .price-chg{font-size:11px;margin-top:4px}
+    .up{color:var(--green)}
+    .down{color:var(--red)}
+    .stats{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:10px;
+    }
+    .stat{
+      background:rgba(12,24,43,.82);
+      border:1px solid rgba(20,48,85,.8);
+      padding:11px;
+    }
+    .stat-label{
+      color:var(--dim);
+      font-size:9px;
+      letter-spacing:2px;
+      text-transform:uppercase;
+      margin-bottom:4px;
+    }
+    .stat-value{
+      font-family:var(--display);
+      color:var(--bright);
+      font-size:18px;
+    }
+    .stat-value.good{color:var(--green)}
+    .stat-value.bad{color:var(--red)}
+    .stat-value.gold{color:var(--gold)}
+    .list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .list-row{
+      display:flex;
+      gap:8px;
+      align-items:flex-start;
+      padding:7px 0;
+      border-bottom:1px solid rgba(20,48,85,.45);
+      font-size:11px;
+    }
+    .label{
+      min-width:62px;
+      color:var(--dim);
+      text-transform:uppercase;
+      letter-spacing:1px;
+      flex-shrink:0;
+    }
+    .msg{color:var(--text)}
+    .msg.good{color:var(--green)}
+    .msg.warn{color:var(--gold)}
+    .msg.bad{color:var(--red)}
+    .position{
+      border:1px solid rgba(20,48,85,.8);
+      background:rgba(12,24,43,.8);
+      border-left:3px solid var(--accent);
+      padding:11px 12px;
+    }
+    .position-head{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+      margin-bottom:5px;
+    }
+    .position-name{
+      font-family:var(--display);
+      font-size:13px;
+      color:var(--bright);
+    }
+    .tiny{
+      font-size:10px;
+      color:var(--dim);
+      line-height:1.4;
+    }
+    .chart-wrap{height:96px}
+    canvas{width:100%;height:100%}
+    .table-head,.trade-row{
+      display:grid;
+      grid-template-columns:66px 1fr 58px 56px 60px 96px;
+      gap:8px;
+      align-items:center;
+    }
+    .table-head{
+      padding:10px 16px;
+      font-size:9px;
+      letter-spacing:2px;
+      text-transform:uppercase;
+      color:var(--dim);
+      border-bottom:1px solid rgba(0,170,255,.35);
+      background:var(--bg2);
+    }
+    .trades{flex:1;overflow:auto;background:var(--bg2)}
+    .trade-row{
+      padding:9px 16px;
+      border-bottom:1px solid rgba(20,48,85,.5);
+      font-size:11px;
+    }
+    .trade-row:hover{background:rgba(0,170,255,.03)}
+    .question{
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      color:var(--text);
+    }
+    .tag{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:42px;
+      padding:2px 7px;
+      border:1px solid rgba(20,48,85,.8);
+      font-size:10px;
+      letter-spacing:1px;
+      text-transform:uppercase;
+      font-family:var(--display);
+    }
+    .tag.yes{color:var(--accent);background:rgba(0,170,255,.14);border-color:rgba(0,170,255,.28)}
+    .tag.no{color:var(--red);background:rgba(255,64,104,.12);border-color:rgba(255,64,104,.26)}
+    .tag.live{color:var(--green);background:rgba(0,255,157,.12);border-color:rgba(0,255,157,.24)}
+    .tag.dry{color:var(--gold);background:rgba(255,208,96,.12);border-color:rgba(255,208,96,.24)}
+    .manager-meta{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:10px;
+      margin-bottom:12px;
+    }
+    .manager-card{
+      background:rgba(12,24,43,.82);
+      border:1px solid rgba(20,48,85,.8);
+      padding:10px;
+    }
+    .manager-card strong{
+      display:block;
+      color:var(--bright);
+      font-family:var(--display);
+      font-size:12px;
+      letter-spacing:1px;
+      margin-bottom:5px;
+    }
+    .manager-card span{
+      display:block;
+      font-size:10px;
+      color:var(--dim);
+      line-height:1.45;
+    }
+    .manager-actions{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:8px;
+      margin-top:10px;
+    }
+    .goal{
+      margin:12px 0;
+      padding:10px 12px;
+      border:1px solid rgba(20,48,85,.8);
+      background:rgba(8,17,29,.94);
+    }
+    .goal-bar{
+      height:8px;
+      background:rgba(20,48,85,.85);
+      margin-top:8px;
+      overflow:hidden;
+    }
+    .goal-fill{
+      height:100%;
+      width:0%;
+      background:linear-gradient(90deg, var(--accent), var(--green));
+      transition:width .2s ease;
+    }
+    .block{
+      margin-top:14px;
+    }
+    .block h4{
+      margin:0 0 8px;
+      font-size:10px;
+      letter-spacing:2px;
+      text-transform:uppercase;
+      color:var(--dim);
+    }
+    .diff-row{
+      display:grid;
+      grid-template-columns:minmax(96px, 1.2fr) minmax(0, 1fr);
+      gap:8px;
+      padding:7px 0;
+      border-bottom:1px solid rgba(20,48,85,.45);
+      font-size:10px;
+    }
+    .diff-row code{
+      color:var(--bright);
+      word-break:break-word;
+      font-family:var(--mono);
+    }
+    .split{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .empty{
+      color:var(--dim);
+      text-align:center;
+      padding:18px 0;
+      font-size:11px;
+      letter-spacing:1px;
+    }
+    .footer{
+      display:flex;
+      justify-content:space-between;
+      gap:16px;
+      flex-wrap:wrap;
+      padding:8px 22px;
+      border-top:1px solid var(--border);
+      color:var(--dim);
+      font-size:10px;
+      letter-spacing:1px;
+      background:var(--bg);
+    }
+    .footer .good{color:var(--green)}
+    .footer .warn{color:var(--gold)}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:rgba(20,48,85,.95)}
+    @media (max-width: 1180px){
+      .grid{grid-template-columns:280px 1fr}
+      .right-rail{grid-column:1 / -1}
+    }
+    @media (max-width: 760px){
+      .topbar{flex-direction:column}
+      .top-controls{justify-content:flex-start}
+      .grid{grid-template-columns:1fr}
+      .manager-meta,.split,.manager-actions,.stats{grid-template-columns:1fr}
+      .table-head,.trade-row{grid-template-columns:56px 1fr 52px 50px 50px 82px}
+      .footer{padding:10px 16px}
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">POLY<em>//</em>AGENT <span id="acct-name" style="font-size:10px;color:var(--dim);letter-spacing:2px">ACCOUNT</span></div>
+        <div class="wallet" id="acct-wallet">wallet: --</div>
+        <div class="subline" id="manager-banner">manager layer online // waiting for state</div>
+      </div>
+      <div class="top-controls">
+        <div class="control">
+          <div class="dot" id="status-dot"></div>
+          <span class="mode-label" id="mode">DRY RUN</span>
+        </div>
+        <div class="control">
+          <span>Strategy</span>
+          <select id="strategy-select" class="select">
+            <option value="conservative">CONSERVATIVE</option>
+            <option value="balanced">BALANCED</option>
+            <option value="weather_only">WEATHER ONLY</option>
+            <option value="crypto_only">CRYPTO ONLY</option>
+            <option value="legacy_aggressive">LEGACY AGGRO</option>
+          </select>
+        </div>
+        <div class="control">
+          <button class="btn" id="toggle-btn">TRADING: ON</button>
+          <span id="toggle-state">syncing</span>
+        </div>
+        <div class="control">
+          <span id="clock">--:--:-- UTC</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="refresh-line"><div class="refresh-fill" id="refresh-fill"></div></div>
+
+    <main class="grid">
+      <section class="rail">
+        <div class="panel">
+          <div class="title">Market Prices</div>
+          <div class="price-stack">
+            <div class="price-card">
+              <div class="price-sym">BTC / USD</div>
+              <div class="price-val" id="bp">—</div>
+              <div class="price-chg" id="bc">connecting...</div>
+            </div>
+            <div class="price-card">
+              <div class="price-sym">ETH / USD</div>
+              <div class="price-val" id="ep">—</div>
+              <div class="price-chg" id="ec">connecting...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="title">Session Stats</div>
+          <div class="stats">
+            <div class="stat"><div class="stat-label">Trades</div><div class="stat-value" id="st">0</div></div>
+            <div class="stat"><div class="stat-label">Open</div><div class="stat-value" id="so">0</div></div>
+            <div class="stat"><div class="stat-label">Est P&amp;L</div><div class="stat-value good" id="sp">$0.00</div></div>
+            <div class="stat"><div class="stat-label">Portfolio</div><div class="stat-value gold" id="sd">$0.00</div></div>
+            <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="stt">0</div></div>
+            <div class="stat"><div class="stat-label">Win Rate</div><div class="stat-value good" id="sw">—</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="title">Open Positions</div>
+          <div class="list" id="pos"><div class="empty">No open positions</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="title">Redeem Alerts</div>
+          <div class="list" id="redeem-alerts"><div class="empty">No checks yet...</div></div>
+        </div>
+      </section>
+
+      <section class="rail">
+        <div class="panel">
+          <div class="title">P&amp;L Curve</div>
+          <div class="chart-wrap"><canvas id="chart"></canvas></div>
+        </div>
+        <div class="table-head">
+          <span>Time</span>
+          <span>Market</span>
+          <span>Sym</span>
+          <span>Side</span>
+          <span>Edge</span>
+          <span>Size · Status</span>
+        </div>
+        <div class="trades" id="tb"><div class="empty">Waiting for trades...</div></div>
+      </section>
+
+      <section class="rail right-rail">
+        <div class="panel">
+          <div class="title">Manager Panel</div>
+          <div class="manager-meta">
+            <div class="manager-card">
+              <strong id="manager-active-name">runtime-default</strong>
+              <span id="manager-active-meta">live directive</span>
+            </div>
+            <div class="manager-card">
+              <strong id="manager-pending-name">continuous-profit-manager</strong>
+              <span id="manager-pending-meta">saved baseline</span>
+            </div>
+          </div>
+
+          <label class="tiny" for="manager-profile-name">Live directive name</label>
+          <input id="manager-profile-name" class="field" type="text" value="continuous-profit-manager">
+
+          <div class="block">
+            <h4>Proposal Text</h4>
+            <textarea id="manager-proposal" class="area"></textarea>
+          </div>
+
+          <div class="manager-actions">
+            <button class="btn" id="manager-draft-btn">Update Live</button>
+            <button class="btn warn" id="manager-validate-btn">Validate</button>
+            <button class="btn" id="manager-save-btn">Save Version</button>
+            <button class="btn strong" id="manager-activate-btn">Commit Baseline</button>
+          </div>
+
+          <div class="goal">
+            <div class="tiny" id="manager-goal-copy">Goal progress unavailable.</div>
+            <div class="goal-bar"><div class="goal-fill" id="manager-goal-fill"></div></div>
+          </div>
+
+          <div class="split">
+            <div class="block">
+              <h4>Validation</h4>
+              <div class="list" id="manager-validation"><div class="empty">No validation yet.</div></div>
+            </div>
+            <div class="block">
+              <h4>Saved Profiles</h4>
+              <div class="list" id="manager-profiles"><div class="empty">No saved profiles yet.</div></div>
+            </div>
+          </div>
+
+          <div class="block">
+            <h4>Live Directive Diff</h4>
+            <div id="manager-diff"><div class="empty">No profile diff yet.</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="title">Manager Review</div>
+          <div class="list" id="manager-review"><div class="empty">Waiting for manager review...</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="title">Agent Log</div>
+          <div class="list" id="log"><div class="empty">Waiting for log...</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="title">Live Portfolio</div>
+          <div class="list" id="portfolio"><div class="empty">Waiting for portfolio...</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="title">KPI</div>
+          <div class="list" id="kpi"><div class="empty">Waiting for KPI...</div></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div>
+        API: <span id="srv" class="good">READY</span>
+        &nbsp;|&nbsp; Cycle: <span id="cyc">0</span>
+        &nbsp;|&nbsp; Relayer: <span id="relayer-status" class="warn">AUTH PENDING</span>
+        &nbsp;|&nbsp; Updated: <span id="upd">—</span>
+      </div>
+      <div>POLY//AGENT v1.0 · manager directives auto-live · live toggle stays separate from code edits</div>
+    </footer>
+  </div>
+
+  <script>
+    const A = "http://localhost:7731/api";
+    const INTV = 10000;
+    let pnlHistory = [];
+    let cycle = 0;
+    let btcPrev = null;
+    let ethPrev = null;
+    let lastTradeCount = 0;
+    let refreshStartedAt = Date.now();
+    let managerDraftDirty = false;
+    let managerNameDirty = false;
+
+    const escMap = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
+    function esc(value){return String(value ?? "").replace(/[&<>"']/g, ch => escMap[ch]);}
+
+    setInterval(() => {
+      document.getElementById("clock").textContent = new Date().toISOString().slice(11, 19) + " UTC";
+    }, 1000);
+
+    setInterval(() => {
+      document.getElementById("refresh-fill").style.width = Math.min(100, ((Date.now() - refreshStartedAt) / INTV) * 100) + "%";
+    }, 200);
+
+    async function api(path){
+      try{
+        const response = await fetch(A + path);
+        return await response.json();
+      }catch{
+        return null;
+      }
+    }
+
+    async function post(path, payload){
+      try{
+        const response = await fetch(A + path, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload || {})
+        });
+        return await response.json();
+      }catch{
+        return null;
+      }
+    }
+
+    async function coinPrice(sym){
+      try{
+        const response = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`);
+        const data = await response.json();
+        return parseFloat(data.data.amount);
+      }catch{
+        try{
+          const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym}USDT`);
+          const data = await response.json();
+          return parseFloat(data.price);
+        }catch{
+          return null;
+        }
+      }
+    }
+
+    async function refreshPrices(){
+      const [btc, eth] = await Promise.all([coinPrice("BTC"), coinPrice("ETH")]);
+      if (btc){
+        const prev = btcPrev;
+        btcPrev = btc;
+        document.getElementById("bp").textContent = "$" + btc.toLocaleString("en-US", {maximumFractionDigits: 0});
+        if (prev){
+          const pct = ((btc - prev) / prev) * 100;
+          const el = document.getElementById("bc");
+          el.textContent = (pct >= 0 ? "▲ +" : "▼ ") + pct.toFixed(3) + "%";
+          el.className = "price-chg " + (pct >= 0 ? "up" : "down");
+        }
+      }
+      if (eth){
+        const prev = ethPrev;
+        ethPrev = eth;
+        document.getElementById("ep").textContent = "$" + eth.toLocaleString("en-US", {maximumFractionDigits: 0});
+        if (prev){
+          const pct = ((eth - prev) / prev) * 100;
+          const el = document.getElementById("ec");
+          el.textContent = (pct >= 0 ? "▲ +" : "▼ ") + pct.toFixed(3) + "%";
+          el.className = "price-chg " + (pct >= 0 ? "up" : "down");
+        }
+      }
+    }
+
+    function renderTrading(enabled){
+      const button = document.getElementById("toggle-btn");
+      const label = document.getElementById("toggle-state");
+      const on = !!enabled;
+      button.textContent = "TRADING: " + (on ? "ON" : "OFF");
+      button.style.borderColor = on ? "var(--green)" : "var(--red)";
+      button.style.color = on ? "var(--green)" : "var(--red)";
+      label.textContent = on ? "live execution enabled" : "monitor-only mode";
+      label.style.color = on ? "var(--green)" : "var(--gold)";
+    }
+
+    function renderPortfolio(portfolio){
+      const box = document.getElementById("portfolio");
+      if (!portfolio){
+        box.innerHTML = '<div class="empty">portfolio unavailable</div>';
+        return;
+      }
+      const rows = portfolio.rows || [];
+      const bits = [];
+      if (portfolio.total_value_usdc != null) bits.push(`<div class="list-row"><span class="label">equity</span><span class="msg good">$${Number(portfolio.total_value_usdc).toFixed(2)} USDC</span></div>`);
+      if (portfolio.cash_balance_usdc != null) bits.push(`<div class="list-row"><span class="label">cash</span><span class="msg">$${Number(portfolio.cash_balance_usdc).toFixed(2)} USDC</span></div>`);
+      if (portfolio.positions_value_usdc != null) bits.push(`<div class="list-row"><span class="label">positions</span><span class="msg">$${Number(portfolio.positions_value_usdc).toFixed(2)} USDC</span></div>`);
+      bits.push(`<div class="list-row"><span class="label">redeem</span><span class="msg ${Number(portfolio.redeemable_count || 0) > 0 ? "warn" : "good"}">${Number(portfolio.redeemable_count || 0)} ready</span></div>`);
+      if (portfolio.error && !rows.length){
+        bits.push(`<div class="list-row"><span class="msg warn">${esc(portfolio.error)}</span></div>`);
+      }
+      rows.slice(0, 8).forEach(row => {
+        const title = esc((row.title || row.slug || row.asset || "position").toString().slice(0, 56));
+        const value = Number(row.currentValue || 0).toFixed(2);
+        const pnl = Number(row.percentPnl || 0).toFixed(1);
+        const outcome = esc((row.outcome || row.side || "pos").toString().slice(0, 12));
+        bits.push(`<div class="list-row"><span class="label">${outcome}</span><span class="msg">${title} · $${value} · ${pnl}%</span></div>`);
+      });
+      box.innerHTML = bits.length ? bits.join("") : '<div class="empty">No portfolio rows</div>';
+    }
+
+    function renderRedeem(redeem){
+      const box = document.getElementById("redeem-alerts");
+      if (!redeem || !redeem.alerts){
+        box.innerHTML = '<div class="empty">No data</div>';
+        return;
+      }
+      box.innerHTML = redeem.alerts.map(item => {
+        const cls = item.severity === "warn" ? "warn" : "good";
+        return `<div class="list-row"><span class="msg ${cls}">${esc((item.message || "").slice(0, 140))}</span></div>`;
+      }).join("");
+    }
+
+    function renderKpi(kpi){
+      const box = document.getElementById("kpi");
+      if (!kpi){
+        box.innerHTML = '<div class="empty">No KPI data</div>';
+        return;
+      }
+      const lines = [
+        `mode: ${kpi.strategy_mode || "--"}`,
+        `total signals: ${kpi.total_executed ?? 0}`,
+        `win rate: ${Number(kpi.win_rate_pct || 0).toFixed(2)}%`,
+        `recent20 win rate: ${Number(kpi.recent_20_win_rate_pct || 0).toFixed(2)}%`,
+        `avg edge: ${(Number(kpi.avg_edge || 0) * 100).toFixed(2)}%`,
+        `max drawdown est: ${Number(kpi.max_drawdown_est || 0).toFixed(4)}`
+      ];
+      box.innerHTML = lines.map(line => `<div class="list-row"><span class="msg">${esc(line)}</span></div>`).join("");
+    }
+
+    function renderTrades(trades){
+      const box = document.getElementById("tb");
+      if (!trades || !trades.length){
+        box.innerHTML = '<div class="empty">Waiting for trades...</div>';
+        return;
+      }
+      box.innerHTML = trades.slice(0, 60).map(trade => {
+        const ts = esc((trade.timestamp || "").slice(11, 19));
+        const question = esc((trade.question || "").slice(0, 48));
+        const status = (trade.status || "").toLowerCase();
+        const statusLabel = status === "placed" ? "LIVE" : status === "dry_run" ? "DRY" : status.toUpperCase();
+        const statusClass = status === "placed" ? "live" : "dry";
+        return `
+          <div class="trade-row">
+            <span style="color:var(--dim)">${ts}</span>
+            <span class="question" title="${esc(trade.question || "")}">${question}</span>
+            <span style="color:var(--gold)">${esc(trade.symbol || "—")}</span>
+            <span><span class="tag ${(trade.side || "").toLowerCase()}">${esc(trade.side || "—")}</span></span>
+            <span style="color:var(--green)">${trade.edge != null ? (Number(trade.edge) * 100).toFixed(1) + "%" : "—"}</span>
+            <span><span class="tag ${statusClass}">${statusLabel}</span> <span style="color:var(--gold)">$${Number(trade.size_usdc || 0).toFixed(2)}</span></span>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderPositions(positions){
+      const box = document.getElementById("pos");
+      const rows = Object.values(positions || {});
+      if (!rows.length){
+        box.innerHTML = '<div class="empty">No open positions</div>';
+        return;
+      }
+      box.innerHTML = rows.map(pos => {
+        return `
+          <div class="position">
+            <div class="position-head">
+              <span class="position-name">${esc(pos.symbol || "POS")} <span class="tag ${(pos.side || "").toLowerCase()}">${esc(pos.side || "—")}</span></span>
+              <span style="color:var(--gold)">$${Number(pos.size_usdc || 0).toFixed(2)}</span>
+            </div>
+            <div class="tiny">Entry: ${Number(pos.entry_price || 0).toFixed(3)} · Shares: ${Number(pos.shares || 0).toFixed(4)} · DCA: ${Number(pos.dca_count || 0)}</div>
+            <div class="tiny" style="margin-top:4px">${esc((pos.question || "").slice(0, 80))}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderLog(lines){
+      const box = document.getElementById("log");
+      if (!lines || !lines.length){
+        box.innerHTML = '<div class="empty">No log lines yet.</div>';
+        return;
+      }
+      box.innerHTML = [...lines].reverse().slice(0, 90).map(line => {
+        const match = line.match(/(\d{2}:\d{2}:\d{2})/);
+        const msg = line.replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+ \[.*?\] /, "");
+        const cls = line.includes("ERROR") ? "bad" : line.includes("WARNING") ? "warn" : line.includes("LIVE") || line.includes("DRY RUN") ? "good" : "";
+        return `<div class="list-row"><span class="label">${match ? match[1] : ""}</span><span class="msg ${cls}">${esc(msg.slice(0, 120))}</span></div>`;
+      }).join("");
+    }
+
+    function renderManager(manager){
+      if (!manager){
+        return;
+      }
+      const live = manager.live || manager.pending || {};
+      const active = manager.active || {};
+      const pending = manager.pending || {};
+      const validation = manager.validation || {};
+      const review = manager.review || {};
+
+      document.getElementById("manager-active-name").textContent = live.name || "runtime-default";
+      document.getElementById("manager-active-meta").textContent =
+        `${live.profile?.strategy_mode || "conservative"} · live ${live.source || "directive"} · entries/cycle ${live.profile?.entry?.max_entries_per_cycle ?? 0} · hold ${live.profile?.exits?.max_hold_minutes ?? 0}m`;
+      document.getElementById("manager-pending-name").textContent = active.name || "runtime-default";
+      document.getElementById("manager-pending-meta").textContent =
+        `${active.profile?.strategy_mode || "conservative"} · saved baseline`;
+
+      if (!managerDraftDirty){
+        document.getElementById("manager-proposal").value = pending.proposal_text || "";
+      }
+      if (!managerNameDirty){
+        document.getElementById("manager-profile-name").value = pending.name || "";
+      }
+
+      document.getElementById("manager-banner").textContent =
+        `manager live: ${(live.name || "runtime-default")} // saved baseline: ${(active.name || "runtime-default")} // ${validation.ok ? "directive valid" : "needs review"}`;
+
+      const goalCopy = (review.scorecard && review.scorecard[0]) || "Goal progress unavailable.";
+      document.getElementById("manager-goal-copy").textContent = goalCopy;
+      document.getElementById("manager-goal-fill").style.width = `${Number(review.goal_progress_pct || 0)}%`;
+
+      const validationBits = [];
+      if (validation.errors?.length){
+        validation.errors.forEach(item => validationBits.push(`<div class="list-row"><span class="msg bad">${esc(item)}</span></div>`));
+      }
+      if (validation.warnings?.length){
+        validation.warnings.forEach(item => validationBits.push(`<div class="list-row"><span class="msg warn">${esc(item)}</span></div>`));
+      }
+      if (validation.replay){
+        validationBits.push(`<div class="list-row"><span class="msg">Replay sample: ${Number(validation.replay.sample_size || 0)} trades · qualified: ${Number(validation.replay.qualified_trades || 0)} · est pnl: $${Number(validation.replay.estimated_pnl_usdc || 0).toFixed(2)} · est win rate: ${Number(validation.replay.estimated_win_rate_pct || 0).toFixed(2)}%</span></div>`);
+      }
+      document.getElementById("manager-validation").innerHTML = validationBits.length ? validationBits.join("") : '<div class="empty">No validation yet.</div>';
+
+      const profiles = manager.profiles || [];
+      document.getElementById("manager-profiles").innerHTML = profiles.length
+        ? profiles.map(name => `<div class="list-row"><span class="msg">${esc(name)}</span></div>`).join("")
+        : '<div class="empty">No saved profiles yet.</div>';
+
+      const diffs = manager.diff || [];
+      document.getElementById("manager-diff").innerHTML = diffs.length
+        ? diffs.slice(0, 16).map(item => `
+            <div class="diff-row">
+              <code>${esc(item.field || "")}</code>
+              <div class="tiny">from <code>${esc(JSON.stringify(item.from))}</code><br>to <code>${esc(JSON.stringify(item.to))}</code></div>
+            </div>`).join("")
+        : '<div class="empty">Live directive matches the saved baseline.</div>';
+
+      const reviewBits = [];
+      if (review.headline) reviewBits.push(`<div class="list-row"><span class="msg">${esc(review.headline)}</span></div>`);
+      (review.scorecard || []).forEach(item => reviewBits.push(`<div class="list-row"><span class="msg">${esc(item)}</span></div>`));
+      (review.reinforcements || []).forEach(item => reviewBits.push(`<div class="list-row"><span class="msg good">${esc(item)}</span></div>`));
+      (review.coaching || []).forEach(item => reviewBits.push(`<div class="list-row"><span class="msg warn">${esc(item)}</span></div>`));
+      (review.risks || []).forEach(item => reviewBits.push(`<div class="list-row"><span class="msg bad">${esc(item)}</span></div>`));
+      document.getElementById("manager-review").innerHTML = reviewBits.length ? reviewBits.join("") : '<div class="empty">Waiting for manager review...</div>';
+    }
+
+    function drawChart(){
+      const canvas = document.getElementById("chart");
+      const ctx = canvas.getContext("2d");
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      canvas.width = width * devicePixelRatio;
+      canvas.height = height * devicePixelRatio;
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      ctx.clearRect(0, 0, width, height);
+      if (pnlHistory.length < 2) return;
+      const min = Math.min(...pnlHistory, -0.5);
+      const max = Math.max(...pnlHistory, 0.5);
+      const range = (max - min) || 1;
+      const tx = i => (i / (pnlHistory.length - 1)) * width;
+      const ty = v => height - ((v - min) / range) * height * 0.82 - height * 0.09;
+
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(20,48,85,.95)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.moveTo(0, ty(0));
+      ctx.lineTo(width, ty(0));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      ctx.moveTo(tx(0), ty(pnlHistory[0]));
+      pnlHistory.forEach((value, index) => ctx.lineTo(tx(index), ty(value)));
+      ctx.lineTo(width, height);
+      ctx.lineTo(0, height);
+      ctx.closePath();
+      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      const positive = pnlHistory[pnlHistory.length - 1] >= 0;
+      gradient.addColorStop(0, positive ? "rgba(0,255,157,.22)" : "rgba(255,64,104,.20)");
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(tx(0), ty(pnlHistory[0]));
+      pnlHistory.forEach((value, index) => ctx.lineTo(tx(index), ty(value)));
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = positive ? "#00ff9d" : "#ff4068";
+      ctx.stroke();
+    }
+
+    async function setTrading(enabled){
+      return api(`/trading/toggle?enabled=${enabled ? 1 : 0}`);
+    }
+
+    async function setStrategy(mode){
+      return api(`/strategy/set?mode=${encodeURIComponent(mode)}`);
+    }
+
+    async function runManagerAction(path){
+      const payload = {
+        name: document.getElementById("manager-profile-name").value.trim(),
+        proposal_text: document.getElementById("manager-proposal").value
+      };
+      const result = await post(path, payload);
+      if (result?.state){
+        managerDraftDirty = false;
+        managerNameDirty = false;
+        renderManager(result.state);
+      }
+    }
+
+    async function refresh(){
+      cycle += 1;
+      document.getElementById("cyc").textContent = cycle;
+      document.getElementById("upd").textContent = new Date().toISOString().slice(11, 19);
+      refreshPrices();
+
+      const [stats, trades, positions, log, trading, portfolio, identity, redeem, kpi, strategy, manager] = await Promise.all([
+        api("/stats"),
+        api("/trades"),
+        api("/positions"),
+        api("/log"),
+        api("/trading"),
+        api("/portfolio"),
+        api("/identity"),
+        api("/redeem_alerts"),
+        api("/kpi"),
+        api("/strategy"),
+        api("/manager")
+      ]);
+
+      if (!stats){
+        document.getElementById("srv").textContent = "RECONNECTING";
+        document.getElementById("srv").className = "warn";
+        refreshStartedAt = Date.now();
+        return;
+      }
+
+      document.getElementById("srv").textContent = "CONNECTED";
+      document.getElementById("srv").className = "good";
+
+      document.getElementById("st").textContent = stats.total_trades;
+      document.getElementById("so").textContent = stats.open_positions;
+      document.getElementById("stt").textContent = stats.today_trades;
+      document.getElementById("sw").textContent = stats.win_rate + "%";
+
+      let deployed = Number(stats.total_deployed || 0);
+      if (portfolio && portfolio.total_value_usdc != null){
+        deployed = Number(portfolio.total_value_usdc);
+      }
+      document.getElementById("sd").textContent = "$" + deployed.toFixed(2);
+
+      const pnl = Number(stats.estimated_pnl || 0);
+      const pnlNode = document.getElementById("sp");
+      pnlNode.textContent = (pnl >= 0 ? "+" : "-") + "$" + Math.abs(pnl).toFixed(2);
+      pnlNode.className = "stat-value " + (pnl >= 0 ? "good" : "bad");
+      pnlHistory.push(pnl);
+      if (pnlHistory.length > 60) pnlHistory.shift();
+      drawChart();
+
+      document.getElementById("mode").textContent = stats.mode;
+      document.getElementById("mode").style.color = stats.mode === "LIVE" ? "var(--green)" : "var(--gold)";
+      document.getElementById("relayer-status").textContent = portfolio && portfolio.live_available ? "CONNECTED" : "AUTH PENDING";
+      document.getElementById("relayer-status").className = portfolio && portfolio.live_available ? "good" : "warn";
+      renderTrading((trading && typeof trading.enabled === "boolean") ? trading.enabled : stats.trading_enabled);
+
+      if (strategy?.mode){
+        document.getElementById("strategy-select").value = strategy.mode;
+      }
+
+      if (identity){
+        const shownName = identity.public_profile_name || identity.expected_name || "ACCOUNT";
+        const acct = document.getElementById("acct-name");
+        acct.textContent = shownName + " " + (identity.has_private_key ? "CONNECTED" : "SETUP NEEDED");
+        acct.style.color = identity.has_private_key ? "var(--green)" : "var(--gold)";
+        document.getElementById("acct-wallet").textContent = "wallet: " + (identity.funder_wallet || identity.signer_wallet || "--");
+      }
+
+      renderPortfolio(portfolio);
+      renderRedeem(redeem);
+      renderKpi(kpi);
+      renderPositions(positions);
+      renderLog(log);
+      renderTrades([...(trades || [])].reverse());
+      renderManager(manager);
+
+      if ((trades || []).length !== lastTradeCount){
+        lastTradeCount = (trades || []).length;
+      }
+      refreshStartedAt = Date.now();
+    }
+
+    document.getElementById("toggle-btn").addEventListener("click", async () => {
+      const currentlyOn = document.getElementById("toggle-btn").textContent.includes("ON");
+      const result = await setTrading(!currentlyOn);
+      if (result?.ok) renderTrading(result.enabled);
+    });
+
+    document.getElementById("strategy-select").addEventListener("change", async (event) => {
+      await setStrategy(event.target.value);
+    });
+
+    document.getElementById("manager-proposal").addEventListener("input", () => {
+      managerDraftDirty = true;
+    });
+    document.getElementById("manager-profile-name").addEventListener("input", () => {
+      managerNameDirty = true;
+    });
+    document.getElementById("manager-draft-btn").addEventListener("click", () => runManagerAction("/manager/propose"));
+    document.getElementById("manager-validate-btn").addEventListener("click", () => runManagerAction("/manager/validate"));
+    document.getElementById("manager-save-btn").addEventListener("click", () => runManagerAction("/manager/save"));
+    document.getElementById("manager-activate-btn").addEventListener("click", () => runManagerAction("/manager/activate"));
+
+    refresh();
+    setInterval(refresh, INTV);
+  </script>
+</body>
+</html>

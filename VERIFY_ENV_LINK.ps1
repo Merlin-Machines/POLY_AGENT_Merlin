@@ -1,0 +1,1 @@
+& "$PSScriptRoot\_SCRIPTS\VERIFY_ENV_LINK.ps1"

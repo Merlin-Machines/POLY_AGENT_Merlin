@@ -1,0 +1,1 @@
+& "$PSScriptRoot\_SCRIPTS\SETUP_FIRST_TIME.ps1"

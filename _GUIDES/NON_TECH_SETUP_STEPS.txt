@@ -1,0 +1,31 @@
+NON-TECH SETUP (5 MINUTES)
+==========================
+
+1) Double-click:
+   SETUP_FIRST_TIME.cmd
+
+2) Open .env and fill these 3 first:
+   ACCOUNT_NAME=
+   POLY_PRIVATE_KEY=
+   POLY_SIGNER_ADDRESS=
+
+3) If you use MetaMask directly:
+   POLY_SIGNATURE_TYPE=0
+   POLY_FUNDER_ADDRESS=
+
+4) If that fails, try:
+   POLY_SIGNATURE_TYPE=2
+   POLY_FUNDER_ADDRESS=your wallet shown on polymarket settings
+
+5) Save .env, then run:
+   VERIFY_ENV_LINK.cmd
+
+6) If PASS:
+   START_AGENT.cmd
+   START_DASHBOARD.cmd
+   open http://localhost:7731
+
+7) Keep DRY_RUN=1 first. When comfortable, switch to DRY_RUN=0.
+
+PowerShell note:
+If you already have PowerShell open in this folder, the matching `.ps1` files still work.

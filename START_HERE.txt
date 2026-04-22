@@ -1,0 +1,28 @@
+POLY AGENT GIFT - START HERE
+============================
+
+1) Double-click:
+   OPEN_SETUP_GUIDE.cmd
+
+2) In the .env file that opens, fill your account values.
+   For Magic/email users:
+   - POLY_SIGNATURE_TYPE=1
+   - POLY_FUNDER_ADDRESS = wallet shown on polymarket settings/profile
+
+3) Double-click:
+   SETUP_FIRST_TIME.cmd
+
+4) Validate auth:
+   VERIFY_ENV_LINK.cmd
+
+5) Start:
+   START_AGENT.cmd
+   START_DASHBOARD.cmd
+
+6) Open:
+   http://localhost:7731
+
+PowerShell note
+---------------
+If you already have PowerShell open in this folder, the `.ps1` versions work too.
+For most guests, the `.cmd` launchers are the easiest and most reliable option.

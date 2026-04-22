@@ -1,0 +1,79 @@
+POLY AGENT .ENV QUICK GUIDE
+===========================
+
+Purpose
+-------
+Use this guide to link THIS agent to YOUR Polymarket account safely.
+
+Files
+-----
+1) .env.example  -> template (never used directly)
+2) .env          -> your real values (used by agent/dashboard)
+3) VERIFY_ENV_LINK.cmd -> checks whether .env is valid and linked
+
+Fast Setup
+----------
+1) Run:
+   SETUP_FIRST_TIME.cmd
+
+2) Open .env and set these required fields:
+   ACCOUNT_NAME=your_polymarket_username
+   POLY_PRIVATE_KEY=64_hex_chars_no_0x
+   POLY_SIGNER_ADDRESS=0xSignerDerivedFromPrivateKey
+
+3) Choose wallet signature type (official Polymarket mapping):
+
+   A) EOA (MetaMask standard wallet):
+      POLY_SIGNATURE_TYPE=0
+      POLY_FUNDER_ADDRESS=
+
+   B) POLY_PROXY (Magic Link login users):
+      POLY_SIGNATURE_TYPE=1
+      POLY_FUNDER_ADDRESS=0xWalletShownOnPolymarketSettings
+
+   C) GNOSIS_SAFE proxy (common for many users):
+      POLY_SIGNATURE_TYPE=2
+      POLY_FUNDER_ADDRESS=0xWalletShownOnPolymarketSettings
+
+4) Keep DRY_RUN=1 for first verification pass.
+
+5) Validate linkage:
+   VERIFY_ENV_LINK.cmd
+
+What PASS means
+---------------
+- private key format is valid
+- signer derived from key matches POLY_SIGNER_ADDRESS (if set)
+- CLOB client initialized
+- API creds were derived/attached successfully
+
+If FAIL
+-------
+- "private key invalid": fix key format (64 hex, no spaces, no 0x)
+- "signer mismatch": POLY_SIGNER_ADDRESS is wrong for this key
+- "CLOB credential derivation failed":
+  - try signature type 2 with profile wallet as funder
+  - if using Magic Link, try signature type 1 with profile wallet as funder
+  - if using MetaMask EOA directly, try signature type 0 with empty funder
+  - verify system clock is synced
+  - verify account is active for CLOB trading
+
+Run + Monitor
+-------------
+1) Start agent:
+   START_AGENT.cmd
+2) Start dashboard (new PowerShell):
+   START_DASHBOARD.cmd
+3) Open:
+   http://localhost:7731
+
+PowerShell note
+---------------
+If you already have PowerShell open in this folder, the `.ps1` versions work too.
+For most users, the `.cmd` launchers are the easiest path.
+
+Live Safety
+-----------
+- Leave DRY_RUN=1 until dashboard shows expected account/wallet linkage.
+- Trading ON/OFF button controls execution without code edits.
+- Strategy selector + KPI panel help monitor performance continuously.

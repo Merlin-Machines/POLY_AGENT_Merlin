@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POLY MGMT Control Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#f3efe4;
+      --paper:#f9f5ec;
+      --panel:#ece4d5;
+      --panel-strong:#e3d8c3;
+      --ink:#1d1a17;
+      --muted:#6c6255;
+      --line:rgba(29,26,23,.12);
+      --line-strong:rgba(29,26,23,.22);
+      --signal:#0f6b58;
+      --risk:#b94a22;
+      --gold:#9b6b19;
+      --accent:#0b3b91;
+      --mono:'IBM Plex Mono', monospace;
+      --sans:'Space Grotesk', sans-serif;
+      --shadow:0 20px 60px rgba(53,43,25,.10);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:
+      radial-gradient(circle at top left, rgba(11,59,145,.07), transparent 28%),
+      radial-gradient(circle at top right, rgba(185,74,34,.08), transparent 24%),
+      linear-gradient(180deg, #f4f0e6 0%, #efe9db 100%);
+      color:var(--ink);
+      font-family:var(--mono);
+    }
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      background-image:
+        linear-gradient(rgba(29,26,23,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(29,26,23,.025) 1px, transparent 1px);
+      background-size:28px 28px;
+      opacity:.55;
+      mix-blend-mode:multiply;
+    }
+    .frame{
+      position:relative;
+      z-index:1;
+      width:min(1480px, calc(100vw - 32px));
+      margin:20px auto 36px;
+    }
+    .hero{
+      border:1px solid var(--line-strong);
+      background:
+        linear-gradient(135deg, rgba(255,255,255,.35), transparent 35%),
+        linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.08)),
+        var(--paper);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .hero-top{
+      display:flex;
+      justify-content:space-between;
+      gap:18px;
+      padding:24px 28px 18px;
+      border-bottom:1px solid var(--line);
+    }
+    .brand{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .eyebrow{
+      font-size:11px;
+      letter-spacing:.34em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .brand h1{
+      margin:0;
+      font:700 clamp(34px, 6vw, 74px)/.92 var(--sans);
+      letter-spacing:-.05em;
+      max-width:760px;
+    }
+    .brand p{
+      margin:0;
+      max-width:720px;
+      color:var(--muted);
+      line-height:1.55;
+      font-size:14px;
+    }
+    .hero-nav{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      align-content:flex-start;
+      gap:10px;
+      max-width:360px;
+    }
+    .link-btn,.ghost-btn,.solid-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:44px;
+      padding:0 16px;
+      border:1px solid var(--line-strong);
+      text-decoration:none;
+      color:var(--ink);
+      background:rgba(255,255,255,.35);
+      font:500 12px/1 var(--mono);
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      cursor:pointer;
+      transition:transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .link-btn:hover,.ghost-btn:hover,.solid-btn:hover{transform:translateY(-1px)}
+    .solid-btn{
+      background:var(--ink);
+      color:#f6f1e6;
+      border-color:var(--ink);
+    }
+    .ghost-btn.signal{border-color:rgba(15,107,88,.35);color:var(--signal)}
+    .ghost-btn.risk{border-color:rgba(185,74,34,.35);color:var(--risk)}
+    .hero-grid{
+      display:grid;
+      grid-template-columns:minmax(0, 1.15fr) minmax(360px, .85fr);
+      gap:0;
+    }
+    .hero-panel{
+      padding:22px 28px 26px;
+      min-height:0;
+    }
+    .hero-panel + .hero-panel{
+      border-left:1px solid var(--line);
+      background:linear-gradient(180deg, rgba(227,216,195,.42), rgba(249,245,236,.55));
+    }
+    .status-band{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:12px;
+      margin-bottom:18px;
+    }
+    .metric{
+      padding:14px 14px 12px;
+      background:rgba(255,255,255,.36);
+      border:1px solid var(--line);
+    }
+    .metric label{
+      display:block;
+      font-size:10px;
+      letter-spacing:.18em;
+      text-transform:uppercase;
+      color:var(--muted);
+      margin-bottom:8px;
+    }
+    .metric strong{
+      display:block;
+      font:700 clamp(18px, 2vw, 28px)/1 var(--sans);
+    }
+    .metric small{
+      display:block;
+      margin-top:6px;
+      color:var(--muted);
+      font-size:11px;
+      line-height:1.45;
+    }
+    .tone-signal{color:var(--signal)}
+    .tone-risk{color:var(--risk)}
+    .tone-gold{color:var(--gold)}
+    .headline-strip{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-bottom:16px;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 12px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.32);
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.10em;
+    }
+    .pulse{
+      width:9px;
+      height:9px;
+      border-radius:999px;
+      background:var(--signal);
+      box-shadow:0 0 0 rgba(15,107,88,.45);
+      animation:pulse 1.6s infinite;
+    }
+    @keyframes pulse{
+      0%{transform:scale(.95);box-shadow:0 0 0 0 rgba(15,107,88,.35)}
+      70%{transform:scale(1);box-shadow:0 0 0 13px rgba(15,107,88,0)}
+      100%{transform:scale(.95);box-shadow:0 0 0 0 rgba(15,107,88,0)}
+    }
+    .hero-copy{
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) minmax(280px, 320px);
+      gap:20px;
+      align-items:end;
+    }
+    .hero-copy p{
+      margin:0;
+      line-height:1.6;
+      color:var(--muted);
+      font-size:13px;
+    }
+    .actions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      justify-content:flex-end;
+    }
+    .workspace{
+      display:grid;
+      grid-template-columns:minmax(0, 1.1fr) minmax(380px, .9fr);
+      gap:18px;
+      margin-top:18px;
+    }
+    .stack{
+      display:grid;
+      gap:18px;
+    }
+    .section{
+      border:1px solid var(--line-strong);
+      background:rgba(249,245,236,.9);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .section-head{
+      display:flex;
+      justify-content:space-between;
+      gap:14px;
+      align-items:flex-start;
+      padding:18px 20px 14px;
+      border-bottom:1px solid var(--line);
+      background:linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0));
+    }
+    .section-head h2{
+      margin:0;
+      font:700 22px/1 var(--sans);
+      letter-spacing:-.03em;
+    }
+    .section-head p{
+      margin:6px 0 0;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.55;
+      max-width:560px;
+    }
+    .section-body{padding:18px 20px 20px}
+    .grid-2{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:14px;
+    }
+    .grid-3{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      gap:14px;
+    }
+    .field{
+      display:grid;
+      gap:8px;
+    }
+    .field label{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:var(--muted);
+    }
+    .field input,.field textarea,.field select{
+      width:100%;
+      border:1px solid var(--line-strong);
+      background:#fffdf8;
+      color:var(--ink);
+      padding:12px 13px;
+      font:400 13px/1.45 var(--mono);
+      outline:none;
+    }
+    .field textarea{
+      min-height:184px;
+      resize:vertical;
+    }
+    .field input:focus,.field textarea:focus,.field select:focus{
+      border-color:var(--accent);
+      box-shadow:0 0 0 4px rgba(11,59,145,.08);
+    }
+    .toggle-line{
+      display:flex;
+      flex-wrap:wrap;
+      gap:12px 18px;
+      margin-top:4px;
+    }
+    .check{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.3);
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+    }
+    .check input{margin:0}
+    .button-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:16px;
+    }
+    .subgrid{
+      display:grid;
+      grid-template-columns:minmax(0, .72fr) minmax(0, .28fr);
+      gap:18px;
+      align-items:start;
+    }
+    .callout{
+      padding:14px 15px;
+      background:linear-gradient(180deg, rgba(227,216,195,.45), rgba(227,216,195,.14));
+      border:1px solid var(--line);
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.6;
+    }
+    .feed{
+      display:grid;
+      gap:10px;
+    }
+    .feed-item{
+      padding:12px 13px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.34);
+      font-size:12px;
+      line-height:1.55;
+    }
+    .feed-item strong{
+      display:block;
+      font:700 14px/1.2 var(--sans);
+      margin-bottom:5px;
+    }
+    .feed-item .meta{
+      display:block;
+      color:var(--muted);
+      font-size:11px;
+      margin-top:5px;
+    }
+    .diff-list,.log-list,.integration-list,.review-list{
+      display:grid;
+      gap:10px;
+    }
+    .diff-item,.log-item,.integration-item,.review-item{
+      padding:12px 13px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.32);
+      font-size:12px;
+      line-height:1.55;
+    }
+    .diff-item code,.log-item code{
+      font-family:var(--mono);
+      font-size:11px;
+      word-break:break-word;
+    }
+    .integration-item{
+      display:grid;
+      gap:8px;
+    }
+    .integration-item a{
+      color:var(--accent);
+      text-decoration:none;
+    }
+    .integration-item a:hover{text-decoration:underline}
+    .tv-shell{
+      min-height:470px;
+      border:1px solid var(--line-strong);
+      background:#fffdf8;
+      position:relative;
+      overflow:hidden;
+    }
+    .tv-shell::before{
+      content:"";
+      position:absolute;
+      inset:14px;
+      border:1px solid rgba(11,59,145,.08);
+      pointer-events:none;
+      z-index:1;
+    }
+    .tradingview-widget-container,.tradingview-widget-container__widget{
+      width:100%;
+      height:470px;
+    }
+    .tv-top{
+      display:flex;
+      gap:10px;
+      margin-bottom:12px;
+    }
+    .tv-top input{
+      flex:1;
+      min-width:0;
+    }
+    .tv-link{
+      margin-top:10px;
+      font-size:11px;
+      color:var(--muted);
+    }
+    .tv-link a{
+      color:var(--accent);
+      text-decoration:none;
+    }
+    .tv-link a:hover{text-decoration:underline}
+    .progress{
+      height:10px;
+      background:rgba(29,26,23,.08);
+      overflow:hidden;
+      margin-top:10px;
+    }
+    .progress > span{
+      display:block;
+      height:100%;
+      background:linear-gradient(90deg, var(--gold), var(--risk));
+      width:0%;
+      transition:width .25s ease;
+    }
+    .toast{
+      position:fixed;
+      right:18px;
+      bottom:18px;
+      padding:12px 14px;
+      background:var(--ink);
+      color:#f7f2e9;
+      border:1px solid rgba(255,255,255,.14);
+      box-shadow:0 18px 38px rgba(0,0,0,.18);
+      max-width:min(420px, calc(100vw - 36px));
+      opacity:0;
+      transform:translateY(12px);
+      pointer-events:none;
+      transition:opacity .2s ease, transform .2s ease;
+      font-size:12px;
+      line-height:1.5;
+      z-index:3;
+    }
+    .toast.show{
+      opacity:1;
+      transform:translateY(0);
+    }
+    .muted{color:var(--muted)}
+    .empty{color:var(--muted);font-size:12px}
+    .small{font-size:11px;color:var(--muted)}
+    @media (max-width: 1120px){
+      .hero-grid,.workspace,.subgrid,.hero-copy{grid-template-columns:1fr}
+      .hero-panel + .hero-panel{border-left:0;border-top:1px solid var(--line)}
+      .actions,.hero-nav{justify-content:flex-start}
+    }
+    @media (max-width: 760px){
+      .frame{width:min(100vw - 18px, 1480px);margin:10px auto 22px}
+      .hero-top,.hero-panel,.section-head,.section-body{padding-left:16px;padding-right:16px}
+      .status-band,.grid-2,.grid-3{grid-template-columns:1fr}
+      .button-row,.toggle-line,.headline-strip{gap:8px}
+      .hero-nav{max-width:none}
+      .tradingview-widget-container,.tradingview-widget-container__widget,.tv-shell{height:400px}
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <section class="hero">
+      <div class="hero-top">
+        <div class="brand">
+          <div class="eyebrow">Manager Directorate</div>
+          <h1>MGMT directs the live agent without waiting for approval.</h1>
+          <p>
+            This room is for live directives, safe runtime knobs, replay checks, weather and news source status,
+            and the market context layer around the trading agent. The execution agent stays focused on trading.
+          </p>
+        </div>
+        <div class="hero-nav">
+          <a class="link-btn" href="/">Agent Dashboard</a>
+          <button class="ghost-btn signal" id="refresh-now" type="button">Refresh Now</button>
+          <button class="ghost-btn risk" id="toggle-trading" type="button">Trading Toggle</button>
+        </div>
+      </div>
+      <div class="hero-grid">
+        <div class="hero-panel">
+          <div class="headline-strip">
+            <div class="pill"><span class="pulse"></span><span id="runtime-state">Manager Live</span></div>
+            <div class="pill" id="directive-pill">Directive: loading</div>
+            <div class="pill" id="baseline-pill">Baseline: loading</div>
+            <div class="pill" id="mode-pill">Mode: loading</div>
+          </div>
+          <div class="status-band">
+            <div class="metric">
+              <label>Today Trades</label>
+              <strong id="metric-trades">0</strong>
+              <small id="metric-trades-meta">Execution flow waiting.</small>
+            </div>
+            <div class="metric">
+              <label>Expected P&amp;L</label>
+              <strong id="metric-pnl">$0.00</strong>
+              <small id="metric-goal">Goal progress unavailable.</small>
+            </div>
+            <div class="metric">
+              <label>Win Rate</label>
+              <strong id="metric-win">0%</strong>
+              <small id="metric-win-meta">Recent 20 quality unavailable.</small>
+            </div>
+            <div class="metric">
+              <label>Open Positions</label>
+              <strong id="metric-open">0</strong>
+              <small id="metric-open-meta">Expiry discipline inactive.</small>
+            </div>
+          </div>
+          <div class="hero-copy">
+            <p id="hero-review">
+              Waiting for the latest manager review and goal progress signal.
+            </p>
+            <div class="actions">
+              <button class="solid-btn" id="apply-knobs" type="button">Apply Safe Knobs</button>
+              <button class="ghost-btn" id="validate-draft" type="button">Replay Check</button>
+              <button class="ghost-btn" id="commit-baseline" type="button">Commit Baseline</button>
+            </div>
+          </div>
+        </div>
+        <div class="hero-panel">
+          <div class="tv-top">
+            <input id="tv-symbol" type="text" value="BINANCE:BTCUSDT" spellcheck="false">
+            <button class="ghost-btn" id="reload-tv" type="button">Reload Chart</button>
+          </div>
+          <div class="tv-shell">
+            <div class="tradingview-widget-container" id="tv-stage">
+              <div class="tradingview-widget-container__widget"></div>
+            </div>
+          </div>
+          <div class="tv-link" id="tv-meta">TradingView status loading.</div>
+        </div>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <div class="stack">
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>Directive Composer</h2>
+              <p>
+                Write the manager instruction in plain language. In this build, manager directives become live immediately,
+                and baseline commit saves the current live directive as the named profile to keep.
+              </p>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="subgrid">
+              <div class="field">
+                <label for="proposal-text">Manager Directive</label>
+                <textarea id="proposal-text" spellcheck="false"></textarea>
+              </div>
+              <div class="stack">
+                <div class="field">
+                  <label for="profile-name">Profile Name</label>
+                  <input id="profile-name" type="text" spellcheck="false" value="continuous-profit-manager">
+                </div>
+                <div class="callout">
+                  <strong class="tone-gold">Live behavior</strong><br>
+                  MGMT can edit the directive path directly. The agent reads the approved live config at runtime and keeps trading
+                  under the current safe knobs and execution logic.
+                </div>
+                <div class="button-row">
+                  <button class="solid-btn" id="update-live" type="button">Update Live Directive</button>
+                  <button class="ghost-btn" id="save-profile" type="button">Save Named Profile</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>Safe Runtime Knobs</h2>
+              <p>
+                These are the live controls the manager can move without rewriting core execution code: trading mode, turnover cadence,
+                size caps, stop discipline, and market filters.
+              </p>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="grid-3">
+              <div class="field">
+                <label for="strategy-mode">Strategy Mode</label>
+                <select id="strategy-mode">
+                  <option value="conservative">Conservative</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="crypto_only">Crypto Only</option>
+                  <option value="weather_only">Weather Only</option>
+                  <option value="legacy_aggressive">Legacy Aggressive</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="base-size">Base Size USDC</label>
+                <input id="base-size" type="number" min="0.5" max="10" step="0.25">
+              </div>
+              <div class="field">
+                <label for="max-size">Max Size USDC</label>
+                <input id="max-size" type="number" min="1" max="20" step="0.25">
+              </div>
+              <div class="field">
+                <label for="max-entries">Max Entries / Cycle</label>
+                <input id="max-entries" type="number" min="1" max="5" step="1">
+              </div>
+              <div class="field">
+                <label for="max-hold">Hold Cap Minutes</label>
+                <input id="max-hold" type="number" min="15" max="720" step="5">
+              </div>
+              <div class="field">
+                <label for="stop-loss">Stop Loss Pct</label>
+                <input id="stop-loss" type="number" min="0.01" max="0.5" step="0.01">
+              </div>
+              <div class="field">
+                <label for="profit-take">Profit Take Pct</label>
+                <input id="profit-take" type="number" min="0.01" max="0.5" step="0.01">
+              </div>
+              <div class="field">
+                <label for="align-need">Indicator Alignment</label>
+                <input id="align-need" type="number" min="1" max="5" step="1">
+              </div>
+              <div class="field">
+                <label for="goal-target">Friday Goal USDC</label>
+                <input id="goal-target" type="number" min="1" max="100000" step="1">
+              </div>
+            </div>
+            <div class="toggle-line">
+              <label class="check"><input id="continuous-trading" type="checkbox"> Continuous trading</label>
+              <label class="check"><input id="filter-crypto" type="checkbox"> Crypto markets</label>
+              <label class="check"><input id="filter-weather" type="checkbox"> Weather markets</label>
+              <label class="check"><input id="use-news" type="checkbox"> News context</label>
+              <label class="check"><input id="use-weather" type="checkbox"> Weather context</label>
+              <label class="check"><input id="use-tradingview" type="checkbox"> TradingView reference</label>
+              <label class="check"><input id="dca-enabled" type="checkbox"> DCA enabled</label>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>Manager Review</h2>
+              <p>
+                Performance feedback, reinforcement, and risk coaching from the current live directive and the recent execution footprint.
+              </p>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="feed" id="review-feed">
+              <div class="empty">Waiting for manager review.</div>
+            </div>
+            <div class="progress"><span id="goal-progress"></span></div>
+            <div class="small" id="goal-progress-copy">Goal progress unavailable.</div>
+          </div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>Validation + Diff</h2>
+              <p>
+                Replay checks keep the manager honest. The diff shows what changed between the saved baseline and the live directive.
+              </p>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="grid-2">
+              <div>
+                <div class="small">Validation</div>
+                <div class="review-list" id="validation-list">
+                  <div class="empty">No validation yet.</div>
+                </div>
+              </div>
+              <div>
+                <div class="small">Saved Profiles</div>
+                <div class="review-list" id="profile-list">
+                  <div class="empty">No profiles yet.</div>
+                </div>
+              </div>
+            </div>
+            <div style="height:14px"></div>
+            <div class="small">Live Diff</div>
+            <div class="diff-list" id="diff-list">
+              <div class="empty">No live diff yet.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>Integrations</h2>
+              <p>
+                Official source status for NOAA, Weather Company, TradingView, news context, and the optional ChatGPT developer thread link.
+              </p>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="integration-list" id="integration-list">
+              <div class="empty">Integration status loading.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>Recent Activity</h2>
+              <p>
+                Latest log lines from the agent so the manager can spot churn, flat exits, hold-discipline, and signal quality shifts quickly.
+              </p>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="log-list" id="log-list">
+              <div class="empty">Waiting for log stream.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const state = {
+      manager: null,
+      stats: null,
+      kpi: null,
+      trading: null,
+      integrations: null,
+      renderedSymbol: null,
+      proposalDirty: false,
+      nameDirty: false,
+      knobsDirty: false,
+      toastTimer: null,
+    };
+
+    function esc(value){
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    async function api(path, options){
+      const resp = await fetch(path, options);
+      if (!resp.ok){
+        throw new Error(`${resp.status} ${resp.statusText}`);
+      }
+      return resp.json();
+    }
+
+    async function post(path, payload){
+      return api(path, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload || {}),
+      });
+    }
+
+    function toast(message){
+      const el = document.getElementById("toast");
+      el.textContent = message;
+      el.classList.add("show");
+      clearTimeout(state.toastTimer);
+      state.toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+    }
+
+    function numValue(id, fallback){
+      const raw = Number(document.getElementById(id).value);
+      return Number.isFinite(raw) ? raw : fallback;
+    }
+
+    function syncForm(manager){
+      const live = manager?.live?.profile || {};
+      const pending = manager?.pending || {};
+      if (!state.proposalDirty){
+        document.getElementById("proposal-text").value = pending.proposal_text || "";
+      }
+      if (!state.nameDirty){
+        document.getElementById("profile-name").value = pending.name || live.name || "continuous-profit-manager";
+      }
+      if (state.knobsDirty){
+        return;
+      }
+      document.getElementById("strategy-mode").value = live.strategy_mode || "conservative";
+      document.getElementById("base-size").value = live.positioning?.base_size_usdc ?? 1;
+      document.getElementById("max-size").value = live.positioning?.max_size_usdc ?? 3;
+      document.getElementById("max-entries").value = live.entry?.max_entries_per_cycle ?? 3;
+      document.getElementById("max-hold").value = live.exits?.max_hold_minutes ?? 90;
+      document.getElementById("stop-loss").value = live.exits?.stop_loss_pct ?? 0.05;
+      document.getElementById("profit-take").value = live.exits?.profit_take_pct ?? 0.04;
+      document.getElementById("align-need").value = live.analysis?.alignment_required ?? 3;
+      document.getElementById("goal-target").value = live.goals?.target_profit_by_friday_usdc ?? 100;
+      document.getElementById("continuous-trading").checked = !!live.entry?.continuous_trading;
+      document.getElementById("filter-crypto").checked = !!live.market_filters?.crypto;
+      document.getElementById("filter-weather").checked = !!live.market_filters?.weather;
+      document.getElementById("use-news").checked = !!live.analysis?.use_news_context;
+      document.getElementById("use-weather").checked = !!live.analysis?.use_weather_context;
+      document.getElementById("use-tradingview").checked = !!live.analysis?.use_tradingview_reference;
+      document.getElementById("dca-enabled").checked = !!live.positioning?.dca_enabled;
+    }
+
+    function renderTop(stats, kpi, manager, trading){
+      const live = manager?.live || {};
+      const active = manager?.active || {};
+      const review = manager?.review || {};
+      document.getElementById("runtime-state").textContent = trading?.enabled ? "Trading Enabled" : "Trading Paused";
+      document.getElementById("toggle-trading").textContent = trading?.enabled ? "Pause Trading" : "Resume Trading";
+      document.getElementById("directive-pill").textContent = `Directive: ${live.name || "runtime-default"}`;
+      document.getElementById("baseline-pill").textContent = `Baseline: ${active.name || "runtime-default"}`;
+      document.getElementById("mode-pill").textContent = `Mode: ${live.profile?.strategy_mode || stats?.strategy_mode || "conservative"}`;
+      document.getElementById("metric-trades").textContent = Number(stats?.today_trades || 0);
+      document.getElementById("metric-trades-meta").textContent = `${Number(stats?.total_trades || 0)} total executions tracked`;
+      document.getElementById("metric-pnl").textContent = `$${Number(stats?.estimated_pnl || 0).toFixed(2)}`;
+      document.getElementById("metric-goal").textContent = review.scorecard?.[0] || "Goal progress unavailable.";
+      document.getElementById("metric-win").textContent = `${Number(kpi?.win_rate_pct || 0).toFixed(1)}%`;
+      document.getElementById("metric-win-meta").textContent = `Recent 20: ${Number(kpi?.recent_20_win_rate_pct || 0).toFixed(1)}%`;
+      document.getElementById("metric-open").textContent = Number(stats?.open_positions || 0);
+      document.getElementById("metric-open-meta").textContent = `Mode ${stats?.mode || "unknown"} · updated ${new Date().toLocaleTimeString()}`;
+      document.getElementById("hero-review").textContent = review.headline || "Manager review waiting for a fresh sample.";
+      document.getElementById("goal-progress").style.width = `${Math.max(0, Math.min(100, Number(review.goal_progress_pct || 0)))}%`;
+      document.getElementById("goal-progress-copy").textContent = review.scorecard?.[0] || "Goal progress unavailable.";
+    }
+
+    function renderReview(manager){
+      const review = manager?.review || {};
+      const blocks = [];
+      if (review.headline){
+        blocks.push(`<div class="feed-item"><strong>Headline</strong>${esc(review.headline)}</div>`);
+      }
+      (review.scorecard || []).forEach(item => {
+        blocks.push(`<div class="feed-item"><strong>Scorecard</strong>${esc(item)}</div>`);
+      });
+      (review.reinforcements || []).forEach(item => {
+        blocks.push(`<div class="feed-item"><strong class="tone-signal">Reinforce</strong>${esc(item)}</div>`);
+      });
+      (review.coaching || []).forEach(item => {
+        blocks.push(`<div class="feed-item"><strong class="tone-gold">Coach</strong>${esc(item)}</div>`);
+      });
+      (review.risks || []).forEach(item => {
+        blocks.push(`<div class="feed-item"><strong class="tone-risk">Risk</strong>${esc(item)}</div>`);
+      });
+      document.getElementById("review-feed").innerHTML = blocks.length ? blocks.join("") : '<div class="empty">Waiting for manager review.</div>';
+    }
+
+    function renderValidation(manager){
+      const validation = manager?.validation || {};
+      const items = [];
+      (validation.errors || []).forEach(item => {
+        items.push(`<div class="review-item"><strong class="tone-risk">Error</strong>${esc(item)}</div>`);
+      });
+      (validation.warnings || []).forEach(item => {
+        items.push(`<div class="review-item"><strong class="tone-gold">Warning</strong>${esc(item)}</div>`);
+      });
+      if (validation.replay){
+        items.push(
+          `<div class="review-item"><strong>Replay</strong>` +
+          `Sample ${Number(validation.replay.sample_size || 0)} · ` +
+          `Qualified ${Number(validation.replay.qualified_trades || 0)} · ` +
+          `Est P&amp;L $${Number(validation.replay.estimated_pnl_usdc || 0).toFixed(2)} · ` +
+          `Est win rate ${Number(validation.replay.estimated_win_rate_pct || 0).toFixed(2)}%` +
+          `</div>`
+        );
+      }
+      document.getElementById("validation-list").innerHTML = items.length ? items.join("") : '<div class="empty">No validation yet.</div>';
+
+      const profiles = manager?.profiles || [];
+      document.getElementById("profile-list").innerHTML = profiles.length
+        ? profiles.map(name => `<div class="review-item"><strong>Profile</strong>${esc(name)}</div>`).join("")
+        : '<div class="empty">No profiles yet.</div>';
+
+      const diffs = manager?.diff || [];
+      document.getElementById("diff-list").innerHTML = diffs.length
+        ? diffs.slice(0, 18).map(item => (
+          `<div class="diff-item"><strong>${esc(item.field || "field")}</strong>` +
+          `<div class="small">from <code>${esc(JSON.stringify(item.from))}</code></div>` +
+          `<div class="small">to <code>${esc(JSON.stringify(item.to))}</code></div>` +
+          `</div>`
+        )).join("")
+        : '<div class="empty">Live directive matches the saved baseline.</div>';
+    }
+
+    function renderLog(lines){
+      const items = (lines || []).slice(-12).reverse().map(line =>
+        `<div class="log-item"><code>${esc(line)}</code></div>`
+      );
+      document.getElementById("log-list").innerHTML = items.length ? items.join("") : '<div class="empty">Waiting for log stream.</div>';
+    }
+
+    function renderIntegrations(integrations){
+      const weather = integrations?.weather || {};
+      const tradingview = integrations?.tradingview || {};
+      const news = integrations?.news?.google_news_rss || {};
+      const chatgpt = integrations?.chatgpt || {};
+      const blocks = [];
+
+      blocks.push(
+        `<div class="integration-item">` +
+        `<strong>NOAA / weather.gov</strong>` +
+        `<div>${weather.noaa?.configured ? "Live public source enabled." : "Not configured."}</div>` +
+        `<div class="small">${esc(weather.noaa?.coverage || "")}</div>` +
+        `<a href="${esc(weather.noaa?.docs_url || "#")}" target="_blank" rel="noreferrer">Docs</a>` +
+        `</div>`
+      );
+
+      blocks.push(
+        `<div class="integration-item">` +
+        `<strong>The Weather Company</strong>` +
+        `<div>${weather.weather_company?.configured ? "API key present for hourly forecast blending." : "Add WEATHERCOM_API_KEY in .env to enable official weather.com-backed API data."}</div>` +
+        `<div class="small">${esc(weather.weather_company?.coverage || "")}</div>` +
+        `<a href="${esc(weather.weather_company?.docs_url || "#")}" target="_blank" rel="noreferrer">Docs</a>` +
+        `</div>`
+      );
+
+      blocks.push(
+        `<div class="integration-item">` +
+        `<strong>WeatherAPI.com via RapidAPI</strong>` +
+        `<div>${weather.weatherapi_rapidapi?.configured ? "RapidAPI key present for WeatherAPI forecast blending." : "Add WEATHERAPI_RAPIDAPI_KEY in .env to enable WeatherAPI.com through RapidAPI."}</div>` +
+        `<div class="small">${esc(weather.weatherapi_rapidapi?.coverage || "")}</div>` +
+        `<div class="small">Host: ${esc(weather.weatherapi_rapidapi?.host || "weatherapi-com.p.rapidapi.com")}</div>` +
+        `<a href="${esc(weather.weatherapi_rapidapi?.docs_url || "#")}" target="_blank" rel="noreferrer">Docs</a>` +
+        `</div>`
+      );
+
+      blocks.push(
+        `<div class="integration-item">` +
+        `<strong>TradingView</strong>` +
+        `<div>Using official ${esc(tradingview.integration_mode || "widget")} mode with symbol ${esc(tradingview.default_symbol || "BINANCE:BTCUSDT")}.</div>` +
+        `<div class="small">${(tradingview.notes || []).map(esc).join(" ")}</div>` +
+        `<a href="${esc(tradingview.docs_url || "#")}" target="_blank" rel="noreferrer">Docs</a>` +
+        `</div>`
+      );
+
+      blocks.push(
+        `<div class="integration-item">` +
+        `<strong>News Context</strong>` +
+        `<div>${news.enabled ? "Google News RSS is active for crypto headline context." : "News context disabled."}</div>` +
+        `<div class="small">This feed is used for lightweight sentiment nudges, not certainty claims.</div>` +
+        `</div>`
+      );
+
+      blocks.push(
+        `<div class="integration-item">` +
+        `<strong>ChatGPT Developer Thread</strong>` +
+        `<div>${chatgpt.configured ? `Thread link is configured.` : "No link configured yet. Add CHATGPT_DEV_THREAD_URL to .env if you want a jump-out link here."}</div>` +
+        `${chatgpt.thread_url ? `<a href="${esc(chatgpt.thread_url)}" target="_blank" rel="noreferrer">Open Thread</a>` : ""}` +
+        `<div class="small">${esc(chatgpt.note || "")}</div>` +
+        `</div>`
+      );
+
+      document.getElementById("integration-list").innerHTML = blocks.join("");
+      if (!document.activeElement || document.activeElement.id !== "tv-symbol"){
+        document.getElementById("tv-symbol").value = tradingview.default_symbol || "BINANCE:BTCUSDT";
+      }
+      renderTradingView(document.getElementById("tv-symbol").value, tradingview);
+    }
+
+    function renderTradingView(symbol, tradingview){
+      const cleaned = (symbol || tradingview?.default_symbol || "BINANCE:BTCUSDT").trim().toUpperCase();
+      if (!cleaned || state.renderedSymbol === cleaned){
+        document.getElementById("tv-meta").textContent = `TradingView ${tradingview?.integration_mode || "widget"} · ${cleaned}`;
+        return;
+      }
+      state.renderedSymbol = cleaned;
+      const stage = document.getElementById("tv-stage");
+      stage.innerHTML = '<div class="tradingview-widget-container__widget"></div>';
+      const script = document.createElement("script");
+      script.type = "text/javascript";
+      script.async = true;
+      script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+      script.text = JSON.stringify({
+        autosize: true,
+        symbol: cleaned,
+        interval: "5",
+        timezone: "America/New_York",
+        theme: "light",
+        style: "1",
+        locale: "en",
+        allow_symbol_change: true,
+        calendar: false,
+        support_host: "https://www.tradingview.com"
+      });
+      stage.appendChild(script);
+      document.getElementById("tv-meta").innerHTML =
+        `TradingView ${esc(tradingview?.integration_mode || "widget")} · ` +
+        `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(cleaned)}" target="_blank" rel="noreferrer">open ${esc(cleaned)}</a>`;
+    }
+
+    async function updateDirective(){
+      const proposalText = document.getElementById("proposal-text").value.trim();
+      const name = document.getElementById("profile-name").value.trim();
+      await post("/api/manager/propose", {proposal_text: proposalText, name});
+      state.proposalDirty = false;
+      state.nameDirty = false;
+      toast("Live directive updated.");
+      await refresh();
+    }
+
+    async function validateDirective(){
+      const proposalText = document.getElementById("proposal-text").value.trim();
+      const name = document.getElementById("profile-name").value.trim();
+      await post("/api/manager/validate", {proposal_text: proposalText, name});
+      toast("Replay validation refreshed.");
+      await refresh();
+    }
+
+    async function saveProfile(){
+      const proposalText = document.getElementById("proposal-text").value.trim();
+      const name = document.getElementById("profile-name").value.trim();
+      await post("/api/manager/save", {proposal_text: proposalText, name});
+      state.proposalDirty = false;
+      state.nameDirty = false;
+      toast("Named profile saved.");
+      await refresh();
+    }
+
+    async function commitBaseline(){
+      const proposalText = document.getElementById("proposal-text").value.trim();
+      const name = document.getElementById("profile-name").value.trim();
+      await post("/api/manager/activate", {proposal_text: proposalText, name});
+      state.proposalDirty = false;
+      state.nameDirty = false;
+      toast("Current live directive committed as baseline.");
+      await refresh();
+    }
+
+    async function applyKnobs(){
+      const patch = {
+        strategy_mode: document.getElementById("strategy-mode").value,
+        market_filters: {
+          crypto: document.getElementById("filter-crypto").checked,
+          weather: document.getElementById("filter-weather").checked,
+        },
+        analysis: {
+          use_news_context: document.getElementById("use-news").checked,
+          use_weather_context: document.getElementById("use-weather").checked,
+          use_tradingview_reference: document.getElementById("use-tradingview").checked,
+          alignment_required: numValue("align-need", 3),
+        },
+        entry: {
+          continuous_trading: document.getElementById("continuous-trading").checked,
+          max_entries_per_cycle: numValue("max-entries", 3),
+        },
+        positioning: {
+          base_size_usdc: numValue("base-size", 1),
+          max_size_usdc: numValue("max-size", 3),
+          dca_enabled: document.getElementById("dca-enabled").checked,
+        },
+        exits: {
+          max_hold_minutes: numValue("max-hold", 90),
+          stop_loss_pct: numValue("stop-loss", 0.05),
+          profit_take_pct: numValue("profit-take", 0.04),
+        },
+        goals: {
+          target_profit_by_friday_usdc: numValue("goal-target", 100),
+        },
+      };
+      await post("/api/manager/patch", {patch});
+      state.knobsDirty = false;
+      toast("Safe knobs applied to live manager profile.");
+      await refresh();
+    }
+
+    async function toggleTrading(){
+      const enabled = !(state.trading?.enabled);
+      await api(`/api/trading/toggle?enabled=${enabled ? "true" : "false"}`);
+      toast(enabled ? "Trading enabled." : "Trading paused.");
+      await refresh();
+    }
+
+    async function refresh(){
+      try{
+        const [stats, kpi, manager, trading, integrations, log] = await Promise.all([
+          api("/api/stats"),
+          api("/api/kpi"),
+          api("/api/manager"),
+          api("/api/trading"),
+          api("/api/integrations"),
+          api("/api/log"),
+        ]);
+        state.stats = stats;
+        state.kpi = kpi;
+        state.manager = manager;
+        state.trading = trading;
+        state.integrations = integrations;
+        syncForm(manager);
+        renderTop(stats, kpi, manager, trading);
+        renderReview(manager);
+        renderValidation(manager);
+        renderIntegrations(integrations);
+        renderLog(log);
+      }catch(err){
+        toast(`Refresh failed: ${err.message}`);
+      }
+    }
+
+    document.getElementById("update-live").addEventListener("click", updateDirective);
+    document.getElementById("validate-draft").addEventListener("click", validateDirective);
+    document.getElementById("save-profile").addEventListener("click", saveProfile);
+    document.getElementById("commit-baseline").addEventListener("click", commitBaseline);
+    document.getElementById("apply-knobs").addEventListener("click", applyKnobs);
+    document.getElementById("toggle-trading").addEventListener("click", toggleTrading);
+    document.getElementById("refresh-now").addEventListener("click", refresh);
+    document.getElementById("reload-tv").addEventListener("click", () => {
+      state.renderedSymbol = null;
+      renderTradingView(document.getElementById("tv-symbol").value, state.integrations?.tradingview || {});
+    });
+    document.getElementById("proposal-text").addEventListener("input", () => state.proposalDirty = true);
+    document.getElementById("profile-name").addEventListener("input", () => state.nameDirty = true);
+    document.querySelectorAll("#strategy-mode, #base-size, #max-size, #max-entries, #max-hold, #stop-loss, #profit-take, #align-need, #goal-target, #continuous-trading, #filter-crypto, #filter-weather, #use-news, #use-weather, #use-tradingview, #dca-enabled")
+      .forEach(el => {
+        el.addEventListener("input", () => state.knobsDirty = true);
+        el.addEventListener("change", () => state.knobsDirty = true);
+      });
+
+    refresh();
+    setInterval(refresh, 20000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+========================================
+POLY AGENT QUICKSTART
+========================================
+
+Recommended Windows path
+------------------------
+1) Double-click:
+   OPEN_SETUP_GUIDE.cmd
+
+2) Fill in `.env`
+   - ACCOUNT_NAME
+   - POLY_PRIVATE_KEY
+   - POLY_SIGNER_ADDRESS
+   - POLY_SIGNATURE_TYPE
+   - POLY_FUNDER_ADDRESS (required for Magic / proxy wallets)
+
+3) Double-click:
+   SETUP_FIRST_TIME.cmd
+
+4) Double-click:
+   VERIFY_ENV_LINK.cmd
+
+5) Start:
+   START_AGENT.cmd
+   START_DASHBOARD.cmd
+   START_MGMT.cmd
+
+6) Open:
+   http://localhost:7731
+   http://localhost:7731/mgmt
+
+
+PowerShell path
+---------------
+If you already have PowerShell open in this folder, these also work:
+
+.\SETUP_FIRST_TIME.ps1
+.\VERIFY_ENV_LINK.ps1
+.\START_AGENT.ps1
+.\START_DASHBOARD.ps1
+.\START_MGMT.ps1
+
+
+What success looks like
+-----------------------
+- `VERIFY_ENV_LINK` prints `PASS`
+- dashboard opens at `http://localhost:7731`
+- manager opens at `http://localhost:7731/mgmt`
+- header shows the connected wallet and account name
+- `Live Portfolio` shows equity / cash / positions
+- `Redeem Alerts` shows claimable resolved positions when present
+
+
+Safety
+------
+- Keep `DRY_RUN=1` the first time you connect a new account.
+- Keep the dashboard trading toggle `OFF` until identity and wallet look correct.
+- Use the strategy selector to switch between monitor modes without editing code.
+
+
+Stop
+----
+- Close the PowerShell windows that launched the agent and dashboard
+- Or press `Ctrl+C` inside those windows
+
+
+Reset local state only
+----------------------
+Delete the contents of:
+- `data\`
+- `logs\`
+
+Do not delete `.env` unless you want to reconnect from scratch.
