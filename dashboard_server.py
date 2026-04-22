@@ -123,6 +123,23 @@ def _truthy(value) -> bool:
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _derive_runtime_mode(env: dict) -> str:
+    dry_raw = str(env.get("DRY_RUN", "")).strip().lower()
+    if dry_raw in ("0", "false", "no", "off"):
+        return "LIVE"
+    if dry_raw in ("1", "true", "yes", "on"):
+        return "DRY RUN"
+
+    if LOG_FILE.exists():
+        for line in reversed(LOG_FILE.read_text(encoding="utf-8", errors="ignore").splitlines()[-250:]):
+            upper = line.upper()
+            if "AGENT STARTED" in upper and "LIVE" in upper:
+                return "LIVE"
+            if "AGENT STARTED" in upper and "DRY RUN" in upper:
+                return "DRY RUN"
+    return "DRY RUN"
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -564,16 +581,7 @@ class H(BaseHTTPRequestHandler):
         today = _utc_now().date().isoformat()
         today_trades = [t for t in placed if t.get("timestamp", "").startswith(today)]
         env = _load_env()
-
-        mode = "DRY RUN"
-        if LOG_FILE.exists():
-            for line in reversed(LOG_FILE.read_text(encoding="utf-8", errors="ignore").splitlines()[-80:]):
-                if "Agent STARTED" in line and "LIVE" in line:
-                    mode = "LIVE"
-                    break
-                if "Agent STARTED" in line and "DRY RUN" in line:
-                    mode = "DRY RUN"
-                    break
+        mode = _derive_runtime_mode(env)
 
         total_val = sum(t.get("size_usdc", 0) for t in placed)
         win_rate = round(sum(1 for t in placed if t.get("edge", 0) > 0.06) / len(placed) * 100, 1) if placed else 0
@@ -595,11 +603,13 @@ class H(BaseHTTPRequestHandler):
 
 
 def run():
-    server = HTTPServer(("localhost", 7731), H)
+    server = HTTPServer(("0.0.0.0", 7731), H)
     target_path = "/mgmt" if "--mgmt" in sys.argv[1:] else "/"
+    local_ip = "192.168.4.106"
     base_url = "http://localhost:7731"
     print(f"Dashboard at {base_url}")
     print(f"Manager UI at {base_url}/mgmt")
+    print(f"Mobile (same WiFi): http://{local_ip}:7731/mgmt")
     try:
         threading.Timer(1.5, lambda: webbrowser.open(base_url + target_path)).start()
     except Exception:
