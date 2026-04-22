@@ -108,6 +108,9 @@ class TradeExecutor:
         price = max(float(price or 0), 0.01)
         return round(max(size_usdc / price, 0.0001), 4)
 
+    def _minimum_live_exit_shares(self) -> float:
+        return 5.0 if not self.dry_run else 0.0
+
     def _positioning_cfg(self, manager_profile: Optional[dict]) -> dict:
         return (manager_profile or {}).get("positioning", {})
 
@@ -209,6 +212,21 @@ class TradeExecutor:
             order_action="exit",
         )
 
+        min_live_shares = self._minimum_live_exit_shares()
+        if min_live_shares and pos.shares < min_live_shares:
+            record.status = "close_blocked_min_size"
+            record.error = (
+                f"Position has {pos.shares:.4f} shares, below live exit floor {min_live_shares:.1f}."
+            )
+            pos.status = "blocked_min_size"
+            pos.last_price = exit_price
+            self.trade_history.append(record)
+            self._save_state()
+            log.warning(
+                f"Exit blocked for {pos.market_id}: shares={pos.shares:.4f} below live exit floor {min_live_shares:.1f}"
+            )
+            return False
+
         try:
             if self.dry_run:
                 record.status = "closed_dry_run"
@@ -258,6 +276,15 @@ class TradeExecutor:
     def _execute_dca(self, existing: Position, opp, manager_profile: Optional[dict]) -> TradeRecord:
         shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
         record = self._trade_record(opp, shares, action="dca")
+        min_live_shares = self._minimum_live_exit_shares()
+        if min_live_shares and existing.shares + shares < min_live_shares:
+            record.status = "skipped"
+            record.error = (
+                f"dca_below_min_exitable_shares:{existing.shares + shares:.4f}<{min_live_shares:.1f}"
+            )
+            self.trade_history.append(record)
+            self._save_state()
+            return record
         try:
             if self.dry_run:
                 record.status = "dry_run"
@@ -314,6 +341,16 @@ class TradeExecutor:
         market = opp.market
         shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
         record = self._trade_record(opp, shares)
+        min_live_shares = self._minimum_live_exit_shares()
+        if min_live_shares and shares < min_live_shares:
+            record.status = "skipped"
+            record.error = f"below_min_exitable_shares:{shares:.4f}<{min_live_shares:.1f}"
+            self.trade_history.append(record)
+            self._save_state()
+            log.warning(
+                f"Skipped live entry for {market.market_id}: shares={shares:.4f} below live exit floor {min_live_shares:.1f}"
+            )
+            return record
         existing = self.positions.get(market.market_id)
         if existing:
             if self._can_dca(existing, opp, manager_profile):
@@ -402,6 +439,8 @@ class TradeExecutor:
         now = datetime.utcnow()
         closed = []
         for market_id, pos in list(self.positions.items()):
+            if pos.status == "blocked_min_size":
+                continue
             try:
                 opened = datetime.fromisoformat(pos.opened_at.replace("Z", "+00:00"))
             except Exception:
