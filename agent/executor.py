@@ -211,6 +211,15 @@ class TradeExecutor:
             shares=pos.shares,
             order_action="exit",
         )
+        exit_context = {
+            "market_id": pos.market_id,
+            "token_id": pos.token_id,
+            "side": pos.side,
+            "shares": round(pos.shares, 4),
+            "requested_price": round(exit_price, 4),
+            "entry_price": round(pos.entry_price, 4),
+            "reason": reason,
+        }
 
         min_live_shares = self._minimum_live_exit_shares()
         if min_live_shares and pos.shares < min_live_shares:
@@ -223,7 +232,9 @@ class TradeExecutor:
             self.trade_history.append(record)
             self._save_state()
             log.warning(
-                f"Exit blocked for {pos.market_id}: shares={pos.shares:.4f} below live exit floor {min_live_shares:.1f}"
+                "Exit blocked (min size) | context=%s | floor=%s",
+                exit_context,
+                f"{min_live_shares:.1f}",
             )
             return False
 
@@ -246,7 +257,12 @@ class TradeExecutor:
             record.error = str(exc)
             self.trade_history.append(record)
             self._save_state()
-            log.error(f"Exit failed: {exc}")
+            log.exception(
+                "Exit failed | context=%s | exception_type=%s | exception=%r",
+                exit_context,
+                type(exc).__name__,
+                exc,
+            )
             return False
 
         realized = (exit_price - pos.entry_price) * pos.shares
