@@ -103,6 +103,34 @@ class TradeExecutor:
         except Exception as exc:
             log.error(f"Client failed: {exc}")
             self.dry_run = True
+        else:
+            self._cancel_stale_open_orders()
+
+    def _cancel_stale_open_orders(self):
+        """Cancel any unfilled open orders from previous sessions to free USDC allowance."""
+        try:
+            from datetime import timezone as tz
+            open_orders = self.client.get_open_orders()
+            orders = open_orders if isinstance(open_orders, list) else (open_orders or {}).get("data", [])
+            now = datetime.now(tz.utc)
+            stale_ids = []
+            for o in orders:
+                created = o.get("created_at") or o.get("createdAt") or ""
+                try:
+                    ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    age_minutes = (now - ts).total_seconds() / 60
+                    if age_minutes > 30:
+                        stale_ids.append(o.get("id") or o.get("order_id") or "")
+                except Exception:
+                    stale_ids.append(o.get("id") or o.get("order_id") or "")
+            stale_ids = [oid for oid in stale_ids if oid]
+            if stale_ids:
+                self.client.cancel_orders(stale_ids)
+                log.info(f"Cancelled {len(stale_ids)} stale open orders on startup: {stale_ids}")
+            else:
+                log.info(f"No stale open orders found ({len(orders)} total open)")
+        except Exception as exc:
+            log.warning(f"Could not cancel stale orders (non-critical): {exc}")
 
     def _price_to_shares(self, price: float, size_usdc: float) -> float:
         price = max(float(price or 0), 0.01)
