@@ -479,18 +479,32 @@ class H(BaseHTTPRequestHandler):
     def _kpi(self):
         trades = self._trades()
         runtime = _load_json_file(RUNTIME_STATS_FILE, {})
-        executed = [t for t in trades if t.get("status") in ("placed", "dry_run")]
-        total = len(executed)
-        win_like = sum(1 for t in executed if t.get("edge", 0) > 0)
-        win_rate = round((win_like / total) * 100, 2) if total else 0.0
-        avg_edge = round(sum(t.get("edge", 0) for t in executed) / total, 4) if total else 0.0
+        entries = [t for t in trades if t.get("status") in ("placed", "dry_run") and t.get("order_action") == "entry"]
+        total = len(entries)
+        avg_edge = round(sum(t.get("edge", 0) for t in entries) / total, 4) if total else 0.0
 
-        # Build a simple cumulative expected PnL curve from edge*size.
+        # Real cumulative P&L curve from matched entry/exit pairs keyed on (market_id, side).
+        entry_cost: dict = {}
+        for t in entries:
+            key = (t.get("market_id", ""), t.get("side", ""))
+            if key not in entry_cost:
+                entry_cost[key] = t.get("price", 0.0)
+
+        closed_exits = [t for t in trades if t.get("order_action") == "exit" and t.get("status") == "closed"]
+        wins = 0
         curve = []
         running = 0.0
-        for t in executed:
-            running += float(t.get("edge", 0) or 0) * float(t.get("size_usdc", 0) or 0)
+        for t in closed_exits:
+            key = (t.get("market_id", ""), t.get("side", ""))
+            ep = entry_cost.get(key)
+            if ep is not None:
+                gain = (t.get("price", 0.0) - ep) * t.get("shares", 0.0)
+                running += gain
+                if gain > 0:
+                    wins += 1
             curve.append(running)
+
+        win_rate = round(wins / len(closed_exits) * 100, 2) if closed_exits else 0.0
         peak = curve[0] if curve else 0.0
         max_dd = 0.0
         for v in curve:
@@ -500,13 +514,20 @@ class H(BaseHTTPRequestHandler):
             if dd > max_dd:
                 max_dd = dd
 
-        last20 = executed[-20:]
-        recent_wr = round((sum(1 for t in last20 if t.get("edge", 0) > 0) / len(last20)) * 100, 2) if last20 else 0.0
+        last20_exits = closed_exits[-20:]
+        recent_wins = 0
+        for t in last20_exits:
+            key = (t.get("market_id", ""), t.get("side", ""))
+            ep = entry_cost.get(key)
+            if ep is not None and (t.get("price", 0.0) - ep) * t.get("shares", 0.0) > 0:
+                recent_wins += 1
+        recent_wr = round(recent_wins / len(last20_exits) * 100, 2) if last20_exits else 0.0
 
         return {
             "strategy_mode": get_strategy_mode(),
             "trading_enabled": trading_enabled(),
             "total_executed": total,
+            "total_closed": len(closed_exits),
             "win_rate_pct": win_rate,
             "recent_20_win_rate_pct": recent_wr,
             "avg_edge": avg_edge,
@@ -646,22 +667,60 @@ class H(BaseHTTPRequestHandler):
         trades = self._trades()
         positions = self._positions()
         runtime = _load_json_file(RUNTIME_STATS_FILE, {})
-        placed = [t for t in trades if t.get("status") == "placed"]
-        pnl = sum(t.get("edge", 0) * t.get("size_usdc", 0) for t in placed)
+        placed = [t for t in trades if t.get("status") == "placed" and t.get("order_action") == "entry"]
         today = _utc_now().date().isoformat()
         today_trades = [t for t in placed if t.get("timestamp", "").startswith(today)]
         env = _load_env()
         mode = _derive_runtime_mode(env)
 
+        # Real realized P&L: match closed exits to entry cost basis by (market_id, side).
+        # Must key on side — YES and NO are different tokens; cross-side matching is wrong.
+        # edge*size_usdc is predicted edge, NOT actual profit — never use it as PnL.
+        entry_cost: dict = {}
+        for t in placed:
+            key = (t.get("market_id", ""), t.get("side", ""))
+            if key not in entry_cost:
+                entry_cost[key] = t.get("price", 0.0)
+        realized_pnl = 0.0
+        wins = 0
+        closed_exits = [t for t in trades if t.get("order_action") == "exit" and t.get("status") == "closed"]
+        for t in closed_exits:
+            key = (t.get("market_id", ""), t.get("side", ""))
+            ep = entry_cost.get(key)
+            if ep is not None:
+                gain = (t.get("price", 0.0) - ep) * t.get("shares", 0.0)
+                realized_pnl += gain
+                if gain > 0:
+                    wins += 1
+
+        # Live account P&L from Polymarket (includes all history, not just agent trades).
+        live_realized_pnl = None
+        live_unrealized_pnl = None
+        live_equity = None
+        wallet = _profile_wallet(env)
+        if wallet:
+            try:
+                rows = _fetch_json(
+                    "https://data-api.polymarket.com/positions?"
+                    + urlencode({"user": wallet, "limit": 50, "sortBy": "CURRENT", "sortDirection": "DESC"})
+                )
+                if isinstance(rows, list):
+                    live_realized_pnl = round(sum(_to_float(r.get("realizedPnl", 0)) or 0 for r in rows), 4)
+                    live_unrealized_pnl = round(sum(_to_float(r.get("cashPnl", 0)) or 0 for r in rows), 4)
+            except Exception:
+                pass
+
         total_val = sum(t.get("size_usdc", 0) for t in placed)
-        win_rate = round(sum(1 for t in placed if t.get("edge", 0) > 0.06) / len(placed) * 100, 1) if placed else 0
+        win_rate = round(wins / len(closed_exits) * 100, 1) if closed_exits else 0
         return {
             "account": env.get("ACCOUNT_NAME", "ACCOUNT"),
             "wallet": env.get("POLY_FUNDER_ADDRESS", ""),
             "total_trades": len(placed),
             "open_positions": len(positions),
             "total_deployed": total_val,
-            "estimated_pnl": round(pnl, 2),
+            "estimated_pnl": round(realized_pnl, 4),
+            "live_realized_pnl": live_realized_pnl,
+            "live_unrealized_pnl": live_unrealized_pnl,
             "today_trades": len(today_trades),
             "today_deployed": sum(t.get("size_usdc", 0) for t in today_trades),
             "win_rate": win_rate,
