@@ -280,6 +280,24 @@ def parse_temp_range(question):
         if any(w in question.lower() for w in ['below','under','lower']): return (-999, val)
     return None
 
+def parse_money_target(question):
+    m = re.search(r'\$\s*([\d,]+(?:\.\d+)?)\s*([kmb])?\b', question.lower())
+    if not m:
+        return None
+    base = float(m.group(1).replace(',', ''))
+    suffix = (m.group(2) or '').lower()
+    mult = {'k': 1_000, 'm': 1_000_000, 'b': 1_000_000_000}.get(suffix, 1)
+    return base * mult
+
+def is_crypto_question(text):
+    ql = (text or '').lower()
+    # Avoid false positives like "nETHerlands" while still matching btc/eth markets.
+    return bool(re.search(r'\b(btc|bitcoin|eth|ethereum)\b', ql))
+
+def pick_crypto_symbol(text):
+    ql = (text or '').lower()
+    return 'BTC' if re.search(r'\b(btc|bitcoin)\b', ql) else 'ETH'
+
 def calc_range_prob(forecast_temp, temp_range, uncertainty=3.0):
     lo, hi = temp_range
     if lo == -999: lo = forecast_temp - 50
@@ -418,19 +436,25 @@ def fetch_weather_markets():
     log.info('Total markets: '+str(len(unique)))
     return unique
 
+def _as_list(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
+
 def build_market_snapshot(markets):
     snapshot = {}
     for m in markets:
         market_id = m.get('id', '')
         if not market_id:
             continue
-        outcomes = m.get('outcomes', [])
-        oprices = m.get('outcomePrices', [])
-        if isinstance(oprices, str):
-            try:
-                oprices = json.loads(oprices)
-            except:
-                oprices = []
+        outcomes = _as_list(m.get('outcomes', []))
+        oprices = _as_list(m.get('outcomePrices', []))
         try:
             yi = next((i for i, o in enumerate(outcomes) if o.lower() == 'yes'), 0)
             ni = next((i for i, o in enumerate(outcomes) if o.lower() == 'no'), 1)
@@ -496,6 +520,12 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
     base_size = float(positioning_cfg.get('base_size_usdc', 1.0) or 1.0)
     max_size = float(positioning_cfg.get('max_size_usdc', 3.0) or 3.0)
     min_hours_to_expiry = max(CFG.min_hours_to_expiry, float(exits_cfg.get('avoid_expiry_minutes', 30) or 30) / 60.0)
+    max_hours_to_expiry = float(exits_cfg.get('max_hours_to_expiry', CFG.max_hours_to_expiry) or CFG.max_hours_to_expiry)
+    # Crypto markets are often farther out than weather events; avoid filtering them all out.
+    if allow_crypto and not allow_weather:
+        max_hours_to_expiry = max(max_hours_to_expiry, 24.0 * 365.0)
+    elif allow_crypto and allow_weather:
+        max_hours_to_expiry = max(max_hours_to_expiry, 24.0 * 30.0)
 
     opps=[]
     for m in markets:
@@ -503,11 +533,10 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
         liq=float(m.get('liquidity') or 0)
         if liq<200: continue  # Much lower liquidity threshold
         tids=m.get('clobTokenIds') or []
-        if isinstance(tids,str):
-            try: tids=json.loads(tids)
-            except: tids=[]
+        tids = _as_list(tids)
         if len(tids)<2: continue
-        outcomes=m.get('outcomes',[]); oprices=m.get('outcomePrices',[])
+        outcomes = _as_list(m.get('outcomes', []))
+        oprices = _as_list(m.get('outcomePrices', []))
         try:
             yi=next((i for i,o in enumerate(outcomes) if o.lower()=='yes'),0)
             ni=next((i for i,o in enumerate(outcomes) if o.lower()=='no'),1)
@@ -524,7 +553,7 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
                     break
                 except: continue
         else: h_left=24.0
-        if not(min_hours_to_expiry<=h_left<=CFG.max_hours_to_expiry): continue
+        if not(min_hours_to_expiry <= h_left <= max_hours_to_expiry): continue
 
         op=None; market_type='unknown'; confidence_level='unknown'
 
@@ -551,8 +580,8 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
                             log.info('WEATHER | '+city+' '+str(temp)+'F | '+str(rng)+'F prob '+format(op,'.1%')+' vs '+format(yp,'.1%')+' | '+confidence_level+' | '+source_text)
 
         # ===== CRYPTO MARKET ANALYSIS WITH 5-MIN CANDLES =====
-        elif any(w in ql for w in ['btc','bitcoin','eth','ethereum','btc price','eth price']) and allow_crypto:
-            sym='BTC' if ('btc' in ql or 'bitcoin' in ql) else 'ETH'
+        elif is_crypto_question(ql) and allow_crypto:
+            sym = pick_crypto_symbol(ql)
             price=prices.get(sym)
             if price and sym in candle_data:
                 tech = candle_data[sym]
@@ -605,9 +634,8 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
                     direction = 'below'
 
                 if direction:
-                    match = re.search(r'\$\s*([\d,]+(?:\.\d+)?)', q)
-                    if match:
-                        val = float(match.group(1).replace(',',''))
+                    val = parse_money_target(q)
+                    if val and val > 100:
                         vol={'BTC':0.65,'ETH':0.80}.get(sym,0.70)
                         T=max(h_left/8760,1/8760)
                         d2=math.log(price/val)/(vol*math.sqrt(T)) if price > 0 and val > 0 else 0
@@ -720,6 +748,89 @@ class Agent:
             for mid, reason in closed:
                 log.info(f'Position closed: {reason}')
 
+        # Continuous-trading fallback for live crypto modes when technical feeds return no setups.
+        if not opps and manager_profile.get('entry', {}).get('continuous_trading') and mode in ('crypto_only', 'balanced', 'conservative'):
+            min_edge_crypto = float(manager_profile.get('entry', {}).get('min_edge_crypto', 0.04) or 0.04)
+            base_size = float(manager_profile.get('positioning', {}).get('base_size_usdc', 1.0) or 1.0)
+            max_size = float(manager_profile.get('positioning', {}).get('max_size_usdc', 3.0) or 3.0)
+            fallback_floor = max(0.01, min_edge_crypto * 0.5)
+            for m in markets:
+                q = m.get('question', '')
+                if not is_crypto_question(q):
+                    continue
+                outcomes = _as_list(m.get('outcomes', []))
+                oprices = _as_list(m.get('outcomePrices', []))
+                tids = _as_list(m.get('clobTokenIds', []))
+                if len(outcomes) < 2 or len(oprices) < 2 or len(tids) < 2:
+                    continue
+                try:
+                    yi = next((i for i, o in enumerate(outcomes) if str(o).lower() == 'yes'), 0)
+                    ni = next((i for i, o in enumerate(outcomes) if str(o).lower() == 'no'), 1)
+                    yp, np_ = float(oprices[yi]), float(oprices[ni])
+                except Exception:
+                    continue
+                if not (0.01 <= yp <= 0.99):
+                    continue
+                val = parse_money_target(q)
+                if not val or val <= 100:
+                    continue
+                sym = pick_crypto_symbol(q)
+                price = prices.get(sym)
+                if not price or price <= 0:
+                    continue
+                end_str = m.get('endDate') or m.get('end_date_iso')
+                h_left = 24.0
+                if end_str:
+                    for fmt in ['%Y-%m-%dT%H:%M:%SZ','%Y-%m-%dT%H:%M:%S.%fZ','%Y-%m-%d']:
+                        try:
+                            end = datetime.strptime(end_str, fmt).replace(tzinfo=timezone.utc)
+                            h_left = max(1.0, (end - datetime.now(timezone.utc)).total_seconds() / 3600)
+                            break
+                        except Exception:
+                            continue
+
+                vol = {'BTC': 0.65, 'ETH': 0.80}.get(sym, 0.70)
+                T = max(h_left / 8760.0, 1 / 8760.0)
+                d2 = math.log(price / val) / (vol * math.sqrt(T)) if price > 0 and val > 0 else 0
+
+                def ncdf(x):
+                    s = 1 if x >= 0 else -1
+                    x = abs(x)
+                    t = 1 / (1 + 0.2316419 * x)
+                    c = (0.31938153, -0.356563782, 1.781477937, -1.821255978, 1.330274429)
+                    poly = sum(c[i] * t ** (i + 1) for i in range(5))
+                    cdf = 1 - (1 / math.sqrt(2 * math.pi)) * math.exp(-x * x / 2) * poly
+                    return cdf if s > 0 else 1 - cdf
+
+                direction_above = 'above' in q.lower() or 'over' in q.lower()
+                op = max(0.05, min(0.95, ncdf(d2) if direction_above else 1 - ncdf(d2)))
+                ey = op - yp
+                en = (1 - op) - np_
+                if ey >= en:
+                    side, edge, mprice, tid = 'YES', ey, yp, tids[yi]
+                else:
+                    side, edge, mprice, tid = 'NO', en, np_, tids[ni]
+                if edge < fallback_floor:
+                    continue
+                size = round(min(max_size, max(base_size, base_size + (edge * 18))), 2)
+                opps.append({
+                    'market_id': m.get('id', ''),
+                    'question': q,
+                    'sym': 'CRYPTO',
+                    'side': side,
+                    'edge': edge,
+                    'price': mprice,
+                    'tid': tid,
+                    'size': size,
+                    'conf': 'CONTINUOUS_FALLBACK',
+                    'op': op,
+                    'yp': yp,
+                    'strategy': 'CONTINUOUS_FALLBACK',
+                })
+                log.info(f'CONTINUOUS FALLBACK | {sym} | {side} | edge {edge:.2%} | market {m.get("id","")[:8]}')
+                if len(opps) >= 2:
+                    break
+
         # ===== WEATHER PREDICTION TRADING (DRY-RUN: SYNTHETIC for testing) =====
         if CFG.dry_run_mode and mode == 'legacy_aggressive':
             # Generate synthetic weather trades for dry-run testing (ALWAYS - don't wait for API)
@@ -777,7 +888,8 @@ class Agent:
                 if liq < 50: continue  # Very low liquidity threshold
 
                 outcomes = m.get('outcomes', [])
-                oprices = m.get('outcomePrices', [])
+                oprices = _as_list(m.get('outcomePrices', []))
+                outcomes = _as_list(outcomes)
                 try:
                     yi = next((i for i, o in enumerate(outcomes) if o.lower() == 'yes'), 0)
                     ni = next((i for i, o in enumerate(outcomes) if o.lower() == 'no'), 1)
@@ -793,9 +905,7 @@ class Agent:
                 edge = abs(our_prob - yp)
                 if edge >= 0.0001:  # ULTRA ULTRA AGGRESSIVE - 0.01% edge minimum
                     tids = m.get('clobTokenIds', [])
-                    if isinstance(tids, str):
-                        try: tids = json.loads(tids)
-                        except: tids = []
+                    tids = _as_list(tids)
                     if len(tids) < 2: continue
 
                     mprice = yp if side == 'YES' else np_
@@ -812,14 +922,8 @@ class Agent:
             # Try to find at least one valid market for forced trade
             for m in markets:
                 try:
-                    outcomes = m.get('outcomes', [])
-                    oprices = m.get('outcomePrices', [])
-                    # Handle JSON string oprices
-                    if isinstance(oprices, str):
-                        try:
-                            oprices = json.loads(oprices)
-                        except:
-                            continue
+                    outcomes = _as_list(m.get('outcomes', []))
+                    oprices = _as_list(m.get('outcomePrices', []))
                     if not oprices or len(oprices) < 2:
                         continue
                     yi = next((i for i, o in enumerate(outcomes) if o.lower() == 'yes'), 0)
@@ -827,9 +931,7 @@ class Agent:
                     yp = float(oprices[yi])
                     if not (0.05 <= yp <= 0.95):
                         continue
-                    tids = m.get('clobTokenIds', [])
-                    if isinstance(tids, str):
-                        tids = json.loads(tids)
+                    tids = _as_list(m.get('clobTokenIds', []))
                     if len(tids) >= 2:
                         opps = [{'market_id': m.get('id'), 'question': m.get('question'),
                             'sym': 'FORCED', 'side': 'YES', 'edge': 0.05, 'price': yp, 'tid': tids[yi],

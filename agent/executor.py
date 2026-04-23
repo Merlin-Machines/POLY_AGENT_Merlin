@@ -355,20 +355,56 @@ class TradeExecutor:
 
     def execute(self, opp, manager_profile: Optional[dict] = None):
         market = opp.market
+        position_cfg = self._positioning_cfg(manager_profile)
+        max_position_size = float(
+            position_cfg.get(
+                "max_size_usdc",
+                getattr(self.cfg, "max_trade_usdc", opp.trade_size),
+            )
+            or getattr(self.cfg, "max_trade_usdc", opp.trade_size)
+        )
         shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
         record = self._trade_record(opp, shares)
         min_live_shares = self._minimum_live_exit_shares()
         if min_live_shares and shares < min_live_shares:
-            record.status = "skipped"
-            record.error = f"below_min_exitable_shares:{shares:.4f}<{min_live_shares:.1f}"
-            self.trade_history.append(record)
-            self._save_state()
-            log.warning(
-                f"Skipped live entry for {market.market_id}: shares={shares:.4f} below live exit floor {min_live_shares:.1f}"
-            )
-            return record
+            required_size = round((min_live_shares * float(opp.best_market_price)) + 0.01, 2)
+            if required_size <= max_position_size:
+                opp.trade_size = max(float(opp.trade_size), required_size)
+                shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
+                record.size_usdc = opp.trade_size
+                record.shares = shares
+                log.info(
+                    f"Upsized live entry for {market.market_id} to ${opp.trade_size:.2f} "
+                    f"to satisfy min share floor {min_live_shares:.1f}"
+                )
+            else:
+                record.status = "skipped"
+                record.error = f"below_min_exitable_shares:{shares:.4f}<{min_live_shares:.1f}"
+                self.trade_history.append(record)
+                self._save_state()
+                log.warning(
+                    f"Skipped live entry for {market.market_id}: shares={shares:.4f} below live exit floor {min_live_shares:.1f}"
+                )
+                return record
         existing = self.positions.get(market.market_id)
         if existing:
+            if (
+                existing.status == "blocked_min_size"
+                and min_live_shares
+                and existing.side == opp.best_side
+                and existing.shares < min_live_shares
+            ):
+                needed_shares = max(0.0, min_live_shares - existing.shares)
+                needed_size = round((needed_shares * float(opp.best_market_price)) + 0.01, 2)
+                room = max(0.0, max_position_size - existing.size_usdc)
+                if room > 0:
+                    opp.trade_size = min(max(opp.trade_size, needed_size), room)
+                    if opp.trade_size > 0:
+                        log.info(
+                            f"Rescue DCA for blocked position {market.market_id}: "
+                            f"add ${opp.trade_size:.2f} to reach exitable size."
+                        )
+                        return self._execute_dca(existing, opp, manager_profile)
             if self._can_dca(existing, opp, manager_profile):
                 return self._execute_dca(existing, opp, manager_profile)
             record.status = "skipped"
