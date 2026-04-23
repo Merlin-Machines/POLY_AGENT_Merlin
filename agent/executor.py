@@ -56,6 +56,7 @@ class TradeExecutor:
         self._daily_trades = 0
         self._today = date.today()
         self.client = None
+        self._exit_cooldown: dict = {}  # market_id -> exit datetime (UTC)
         Path(config.log_dir).mkdir(exist_ok=True)
         Path(config.data_dir).mkdir(exist_ok=True)
         self._load_state()
@@ -217,17 +218,32 @@ class TradeExecutor:
         return order_id
 
     def _place_exit_order(self, token_id: str, price: float, shares: float) -> str:
-        from py_clob_client.clob_types import OrderArgs
+        from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
+        import time
 
-        order_args = OrderArgs(
+        order_args = MarketOrderArgs(
             token_id=token_id,
-            price=round(price, 4),
-            size=round(shares, 4),
+            amount=round(shares, 4),
             side=SELL,
+            order_type=OrderType.FOK,
         )
-        response = self.client.create_and_post_order(order_args)
-        return str(response.get("orderID", ""))
+        order = self.client.create_market_order(order_args)
+        response = self.client.post_order(order, OrderType.FOK)
+        order_id = str(response.get("orderID", ""))
+        time.sleep(2.0)
+        try:
+            order_detail = self.client.get_order(order_id)
+            status = (order_detail.get("status") or "").upper()
+            size_matched = float(order_detail.get("size_matched") or 0)
+            log.info(f"Exit market order: status={status} size_matched={size_matched}")
+            if "CANCEL" in status and size_matched == 0:
+                raise RuntimeError(f"Exit FOK cancelled without fill: status={status}")
+        except RuntimeError:
+            raise
+        except Exception as ve:
+            log.warning(f"Exit order verification skipped: {ve}")
+        return order_id
 
     def _resolve_exit_price(self, pos: Position, current_price: Optional[float]) -> float:
         price = current_price or pos.last_price or pos.entry_price or 0.5
@@ -330,9 +346,18 @@ class TradeExecutor:
         realized = (exit_price - pos.entry_price) * pos.shares
         self._daily_pnl += realized
         self.trade_history.append(record)
-        self.positions.pop(pos.market_id, None)
+        market_id_closed = pos.market_id
+        self.positions.pop(market_id_closed, None)
+        self._exit_cooldown[market_id_closed] = datetime.utcnow()
         self._save_state()
         return True
+
+    def in_exit_cooldown(self, market_id: str, cooldown_minutes: float = 30.0) -> bool:
+        exited_at = self._exit_cooldown.get(market_id)
+        if not exited_at:
+            return False
+        age_minutes = (datetime.utcnow() - exited_at).total_seconds() / 60
+        return age_minutes < cooldown_minutes
 
     def _can_dca(self, existing: Position, opp, manager_profile: Optional[dict]) -> bool:
         cfg = self._positioning_cfg(manager_profile)
@@ -516,10 +541,21 @@ class TradeExecutor:
             json.dump([asdict(t) for t in self.trade_history], fh, indent=2)
         with open(os.path.join(self.cfg.data_dir, "positions.json"), "w", encoding="utf-8") as fh:
             json.dump({key: asdict(value) for key, value in self.positions.items()}, fh, indent=2)
+        cooldown_path = os.path.join(self.cfg.data_dir, "exit_cooldown.json")
+        with open(cooldown_path, "w", encoding="utf-8") as fh:
+            json.dump({k: v.isoformat() for k, v in self._exit_cooldown.items()}, fh)
 
     def _load_state(self):
         trades_path = os.path.join(self.cfg.data_dir, "trades.json")
         positions_path = os.path.join(self.cfg.data_dir, "positions.json")
+        cooldown_path = os.path.join(self.cfg.data_dir, "exit_cooldown.json")
+        if os.path.exists(cooldown_path):
+            try:
+                with open(cooldown_path, encoding="utf-8") as fh:
+                    raw = json.load(fh)
+                    self._exit_cooldown = {k: datetime.fromisoformat(v) for k, v in raw.items()}
+            except Exception:
+                pass
         if os.path.exists(trades_path):
             try:
                 with open(trades_path, encoding="utf-8") as fh:

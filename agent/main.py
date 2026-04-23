@@ -781,6 +781,8 @@ class Agent:
                     continue
                 if m.get('id', '') in recently_closed_ids:
                     continue
+                if self.executor.in_exit_cooldown(m.get('id', '')):
+                    continue
                 q = m.get('question', '')
                 if not is_crypto_question(q):
                     continue
