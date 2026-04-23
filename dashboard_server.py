@@ -29,6 +29,9 @@ DATA_DIR = BASE / "data"
 LOG_FILE = BASE / "logs" / "agent.log"
 TRADING_FLAG = DATA_DIR / "trading_enabled.flag"
 STRATEGY_FLAG = DATA_DIR / "strategy_mode.flag"
+RUNTIME_STATS_FILE = DATA_DIR / "runtime_stats.json"
+CYCLE_SUMMARY_FILE = DATA_DIR / "cycle_summary.json"
+REJECTION_SUMMARY_FILE = DATA_DIR / "rejection_summary.json"
 
 
 def _utc_now() -> datetime:
@@ -140,6 +143,15 @@ def _derive_runtime_mode(env: dict) -> str:
     return "DRY RUN"
 
 
+def _load_json_file(path: Path, default):
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return default
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -169,6 +181,9 @@ class H(BaseHTTPRequestHandler):
             "/api/redeem_alerts": self._redeem_alerts,
             "/api/strategy": self._strategy,
             "/api/kpi": self._kpi,
+            "/api/runtime_health": self._runtime_health,
+            "/api/accountability": self._accountability,
+            "/api/rejections": self._rejections,
             "/api/manager": self._manager,
             "/api/integrations": self._integrations,
         }
@@ -463,6 +478,7 @@ class H(BaseHTTPRequestHandler):
 
     def _kpi(self):
         trades = self._trades()
+        runtime = _load_json_file(RUNTIME_STATS_FILE, {})
         executed = [t for t in trades if t.get("status") in ("placed", "dry_run")]
         total = len(executed)
         win_like = sum(1 for t in executed if t.get("edge", 0) > 0)
@@ -495,7 +511,60 @@ class H(BaseHTTPRequestHandler):
             "recent_20_win_rate_pct": recent_wr,
             "avg_edge": avg_edge,
             "max_drawdown_est": round(max_dd, 4),
+            "runtime_health_reason": runtime.get("runtime_health_reason"),
+            "idle_minutes_since_last_live_order": runtime.get("idle_minutes_since_last_live_order"),
+            "last_live_entry_at": runtime.get("last_live_entry_at"),
+            "last_live_exit_at": runtime.get("last_live_exit_at"),
+            "blocked_exit_count": runtime.get("blocked_exit_count", 0),
+            "trapped_position_count": runtime.get("trapped_position_count", 0),
+            "unrealized_pnl_open": runtime.get("unrealized_pnl_open", 0.0),
+            "profit_by_symbol_bucket": runtime.get("profit_by_symbol_bucket", {}),
         }
+
+    def _runtime_health(self):
+        runtime = _load_json_file(RUNTIME_STATS_FILE, {})
+        return {
+            "mode": runtime.get("mode", "DRY RUN"),
+            "runtime_health_reason": runtime.get("runtime_health_reason"),
+            "idle_minutes_since_last_live_order": runtime.get("idle_minutes_since_last_live_order"),
+            "last_live_entry_at": runtime.get("last_live_entry_at"),
+            "last_live_exit_at": runtime.get("last_live_exit_at"),
+            "orders_placed_today": runtime.get("orders_placed_today", 0),
+            "orders_closed_today": runtime.get("orders_closed_today", 0),
+            "blocked_entry_count": runtime.get("blocked_entry_count", 0),
+            "blocked_exit_count": runtime.get("blocked_exit_count", 0),
+            "exit_failure_count": runtime.get("exit_failure_count", 0),
+            "trapped_position_count": runtime.get("trapped_position_count", 0),
+            "unrealized_pnl_open": runtime.get("unrealized_pnl_open", 0.0),
+        }
+
+    def _accountability(self):
+        runtime = _load_json_file(RUNTIME_STATS_FILE, {})
+        cycle = _load_json_file(CYCLE_SUMMARY_FILE, {})
+        return {
+            "runtime_health_reason": runtime.get("runtime_health_reason"),
+            "orders_placed_today": runtime.get("orders_placed_today", 0),
+            "orders_closed_today": runtime.get("orders_closed_today", 0),
+            "last_live_entry_at": runtime.get("last_live_entry_at"),
+            "last_live_exit_at": runtime.get("last_live_exit_at"),
+            "idle_minutes_since_last_live_order": runtime.get("idle_minutes_since_last_live_order"),
+            "blocked_entry_count": runtime.get("blocked_entry_count", 0),
+            "blocked_exit_count": runtime.get("blocked_exit_count", 0),
+            "exit_failure_count": runtime.get("exit_failure_count", 0),
+            "trapped_position_count": runtime.get("trapped_position_count", 0),
+            "unrealized_pnl_open": runtime.get("unrealized_pnl_open", 0.0),
+            "profit_by_symbol_bucket": runtime.get("profit_by_symbol_bucket", {}),
+            "latest_cycle": cycle,
+        }
+
+    def _rejections(self):
+        return _load_json_file(
+            REJECTION_SUMMARY_FILE,
+            {
+                "message": "No rejection summary persisted yet.",
+                "markets_seen": 0,
+            },
+        )
 
     def _manager(self):
         return get_manager_state(
@@ -576,6 +645,7 @@ class H(BaseHTTPRequestHandler):
     def _stats(self):
         trades = self._trades()
         positions = self._positions()
+        runtime = _load_json_file(RUNTIME_STATS_FILE, {})
         placed = [t for t in trades if t.get("status") == "placed"]
         pnl = sum(t.get("edge", 0) * t.get("size_usdc", 0) for t in placed)
         today = _utc_now().date().isoformat()
@@ -598,6 +668,18 @@ class H(BaseHTTPRequestHandler):
             "mode": mode,
             "trading_enabled": trading_enabled(),
             "strategy_mode": get_strategy_mode(),
+            "runtime_health_reason": runtime.get("runtime_health_reason"),
+            "orders_placed_today": runtime.get("orders_placed_today", 0),
+            "orders_closed_today": runtime.get("orders_closed_today", 0),
+            "last_live_entry_at": runtime.get("last_live_entry_at"),
+            "last_live_exit_at": runtime.get("last_live_exit_at"),
+            "idle_minutes_since_last_live_order": runtime.get("idle_minutes_since_last_live_order"),
+            "blocked_entry_count": runtime.get("blocked_entry_count", 0),
+            "blocked_exit_count": runtime.get("blocked_exit_count", 0),
+            "exit_failure_count": runtime.get("exit_failure_count", 0),
+            "trapped_position_count": runtime.get("trapped_position_count", 0),
+            "unrealized_pnl_open": runtime.get("unrealized_pnl_open", 0.0),
+            "profit_by_symbol_bucket": runtime.get("profit_by_symbol_bucket", {}),
             "last_updated": _utc_now().isoformat(),
         }
 

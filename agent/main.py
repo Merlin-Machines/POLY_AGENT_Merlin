@@ -509,6 +509,37 @@ def strategy_mode():
         pass
     return 'conservative'
 
+def _new_rejection_summary():
+    return {
+        'markets_seen': 0,
+        'crypto_candidates': 0,
+        'weather_candidates': 0,
+        'opportunities_found': 0,
+        'entries_attempted': 0,
+        'entries_placed': 0,
+        'exits_attempted': 0,
+        'exits_closed': 0,
+        'rejected_liquidity': 0,
+        'rejected_missing_token_ids': 0,
+        'rejected_price_parse': 0,
+        'rejected_hours_to_expiry': 0,
+        'rejected_missing_candle_data': 0,
+        'rejected_signal_alignment': 0,
+        'rejected_prob_threshold': 0,
+        'rejected_edge_threshold': 0,
+        'rejected_spread_threshold': 0,
+        'rejected_already_in_position': 0,
+        'rejected_recently_closed': 0,
+        'rejected_trade_limit': 0,
+        'rejected_disabled_by_dashboard': 0,
+    }
+
+
+def _write_json(path: Path, payload):
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+
+
 def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conservative', manager_profile=None):
     profile = manager_profile or {}
     filters = profile.get('market_filters', {})
@@ -536,22 +567,38 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
         max_hours_to_expiry = max(max_hours_to_expiry, 24.0 * 30.0)
 
     opps=[]
+    telemetry = _new_rejection_summary()
     spread_cache = {}
     for m in markets:
+        telemetry['markets_seen'] += 1
         q=m.get('question',''); ql=q.lower()
         liq=float(m.get('liquidity') or 0)
-        if liq<200: continue  # Much lower liquidity threshold
+        is_weather_candidate = any(w in ql for w in ['temperature','degrees','high of','low of','warmer','cooler','temp','weather','precipitation','rainfall'])
+        is_crypto_candidate = is_crypto_question(ql)
+        if is_weather_candidate:
+            telemetry['weather_candidates'] += 1
+        if is_crypto_candidate:
+            telemetry['crypto_candidates'] += 1
+        if liq<200:
+            telemetry['rejected_liquidity'] += 1
+            continue  # Much lower liquidity threshold
         tids=m.get('clobTokenIds') or []
         tids = _as_list(tids)
-        if len(tids)<2: continue
+        if len(tids)<2:
+            telemetry['rejected_missing_token_ids'] += 1
+            continue
         outcomes = _as_list(m.get('outcomes', []))
         oprices = _as_list(m.get('outcomePrices', []))
         try:
             yi=next((i for i,o in enumerate(outcomes) if o.lower()=='yes'),0)
             ni=next((i for i,o in enumerate(outcomes) if o.lower()=='no'),1)
             yp,np_=float(oprices[yi]),float(oprices[ni])
-        except: continue
-        if not(0.01<=yp<=0.99): continue
+        except:
+            telemetry['rejected_price_parse'] += 1
+            continue
+        if not(0.01<=yp<=0.99):
+            telemetry['rejected_prob_threshold'] += 1
+            continue
         h_left=0.0
         end_str=m.get('endDate') or m.get('end_date_iso')
         if end_str:
@@ -562,7 +609,9 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
                     break
                 except: continue
         else: h_left=24.0
-        if not(min_hours_to_expiry <= h_left <= max_hours_to_expiry): continue
+        if not(min_hours_to_expiry <= h_left <= max_hours_to_expiry):
+            telemetry['rejected_hours_to_expiry'] += 1
+            continue
 
         op=None; market_type='unknown'; confidence_level='unknown'
 
@@ -678,18 +727,27 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
                             f'| align {signal_strength}/{alignment_required} '
                             f'| prob {op:.1%} vs {yp:.1%}'
                         )
+                else:
+                    telemetry['rejected_signal_alignment'] += 1
+            else:
+                telemetry['rejected_missing_candle_data'] += 1
 
-        if op is None: continue
+        if op is None:
+            continue
 
         min_prob = min_prob_crypto if confidence_level.startswith('CANDLE') else min_prob_weather
-        if not(min_prob<=op<=0.99): continue
+        if not(min_prob<=op<=0.99):
+            telemetry['rejected_prob_threshold'] += 1
+            continue
 
         ey=op-yp; en=(1-op)-np_
         if ey>=en: side,edge,mprice,tid='YES',ey,yp,tids[yi]
         else: side,edge,mprice,tid='NO',en,np_,tids[ni]
 
         min_edge = min_edge_crypto if confidence_level.startswith('CANDLE') else min_edge_weather
-        if edge<min_edge: continue
+        if edge<min_edge:
+            telemetry['rejected_edge_threshold'] += 1
+            continue
 
         if market_type == 'CRYPTO':
             spread = spread_cache.get(tid)
@@ -697,6 +755,7 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
                 spread = POLY_TOOL.get_spread(tid)
                 spread_cache[tid] = spread
             if spread and float(spread.get('spread_pct', 0) or 0) > max_spread_pct:
+                telemetry['rejected_spread_threshold'] += 1
                 log.info(
                     f'SKIP SPREAD | {market_type} | {m.get("id","")[:8]} | '
                     f'spread {float(spread.get("spread_pct", 0) or 0):.2%} > {max_spread_pct:.2%}'
@@ -713,7 +772,9 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
 
         log.info('OPPORTUNITY | '+market_type+' | '+conf+' | '+q[:40]+' | '+side+' edge '+format(edge,'.1%')+' $'+str(size))
         opps.append({'market_id':m.get('id',''),'question':q,'sym':market_type,'side':side,'edge':edge,'price':mprice,'tid':tid,'size':size,'conf':conf,'op':op,'yp':yp,'strategy':confidence_level})
-    return sorted(opps,key=lambda x:(x['conf']=='HIGH',x['edge']),reverse=True)
+    opps = sorted(opps,key=lambda x:(x['conf']=='HIGH',x['edge']),reverse=True)
+    telemetry['opportunities_found'] = len(opps)
+    return opps, telemetry
 
 class Agent:
     def __init__(self):
@@ -759,12 +820,14 @@ class Agent:
         markets=fetch_weather_markets()
         if not markets: return
         market_snapshot = build_market_snapshot(markets)
-        opps=analyze(markets,prices,weather_cache,candle_data,news_data,mode,manager_profile)
+        opps, telemetry = analyze(markets,prices,weather_cache,candle_data,news_data,mode,manager_profile)
         closed = self.executor.check_exits(
             market_snapshot=market_snapshot,
             signal_map={opp['market_id']: opp for opp in opps},
             manager_profile=manager_profile,
         )
+        telemetry['exits_attempted'] = int(self.executor.stats.get('exits_attempted_last_cycle', 0) or 0)
+        telemetry['exits_closed'] = int(self.executor.stats.get('exits_closed_last_cycle', 0) or 0)
         recently_closed_ids: set = {mid for mid, _ in closed} if closed else set()
         if closed:
             for mid, reason in closed:
@@ -778,10 +841,13 @@ class Agent:
             fallback_floor = max(0.01, min_edge_crypto * 0.5)
             for m in markets:
                 if m.get('id', '') in self.executor.positions:
+                    telemetry['rejected_already_in_position'] += 1
                     continue
                 if m.get('id', '') in recently_closed_ids:
+                    telemetry['rejected_recently_closed'] += 1
                     continue
                 if self.executor.in_exit_cooldown(m.get('id', '')):
+                    telemetry['rejected_recently_closed'] += 1
                     continue
                 q = m.get('question', '')
                 if not is_crypto_question(q):
@@ -790,14 +856,17 @@ class Agent:
                 oprices = _as_list(m.get('outcomePrices', []))
                 tids = _as_list(m.get('clobTokenIds', []))
                 if len(outcomes) < 2 or len(oprices) < 2 or len(tids) < 2:
+                    telemetry['rejected_missing_token_ids'] += 1
                     continue
                 try:
                     yi = next((i for i, o in enumerate(outcomes) if str(o).lower() == 'yes'), 0)
                     ni = next((i for i, o in enumerate(outcomes) if str(o).lower() == 'no'), 1)
                     yp, np_ = float(oprices[yi]), float(oprices[ni])
                 except Exception:
+                    telemetry['rejected_price_parse'] += 1
                     continue
                 if not (0.01 <= yp <= 0.99):
+                    telemetry['rejected_prob_threshold'] += 1
                     continue
                 val = parse_money_target(q)
                 if not val or val <= 100:
@@ -841,6 +910,7 @@ class Agent:
                 else:
                     side, edge, mprice, tid = 'NO', en, np_, tids[ni]
                 if edge < fallback_floor:
+                    telemetry['rejected_edge_threshold'] += 1
                     continue
                 size = round(min(max_size, max(base_size, base_size + (edge * 18))), 2)
                 opps.append({
@@ -976,6 +1046,8 @@ class Agent:
         if not is_enabled:
             log.warning('TRADING DISABLED BY DASHBOARD SWITCH - opportunities monitored only')
         max_entries = int(manager_profile.get('entry', {}).get('max_entries_per_cycle', 5) or 5)
+        if len(opps) > max_entries:
+            telemetry['rejected_trade_limit'] += (len(opps) - max_entries)
         for opp in opps[:max_entries]:
             class FO: pass
             fo=FO()
@@ -989,10 +1061,60 @@ class Agent:
             fo.best_market_price=opp['price']; fo.best_token_id=opp['tid']
             fo.trade_size=opp['size']; fo.confidence=opp['conf']
             fo.our_prob_yes=opp['op']; fo.market_prob_yes=opp['yp']
+            telemetry['entries_attempted'] += 1
             if is_enabled:
-                self.executor.execute(fo, manager_profile=manager_profile)
-        s=self.executor.stats
-        log.info('Trades:'+str(s['total_trades'])+' Open:'+str(s['open_positions'])+' Deployed:$'+format(s['deployed'],'.2f'))
+                rec = self.executor.execute(fo, manager_profile=manager_profile)
+                if rec.status in ('placed', 'dry_run'):
+                    telemetry['entries_placed'] += 1
+                elif rec.error == 'already_in':
+                    telemetry['rejected_already_in_position'] += 1
+                elif rec.error in ('Daily trade limit', 'Daily loss limit', 'Max positions'):
+                    telemetry['rejected_trade_limit'] += 1
+            else:
+                telemetry['rejected_disabled_by_dashboard'] += 1
+
+        stats = self.executor.stats
+        idle_minutes = stats.get('idle_minutes_since_last_live_order')
+        cycle_summary = {
+            'cycle': self.cycle,
+            'at': datetime.now(timezone.utc).isoformat(),
+            'strategy_mode': mode,
+            'runtime_mode': stats.get('mode'),
+            'runtime_health_reason': stats.get('runtime_health_reason'),
+            **telemetry,
+            'blocked_entry_count': stats.get('blocked_entry_count', 0),
+            'blocked_exit_count': stats.get('blocked_exit_count', 0),
+            'exit_failure_count': stats.get('exit_failure_count', 0),
+            'trapped_position_count': stats.get('trapped_position_count', 0),
+            'unrealized_pnl_open': stats.get('unrealized_pnl_open', 0.0),
+            'idle_minutes_since_last_live_order': idle_minutes,
+        }
+        rejection_summary = {
+            'at': cycle_summary['at'],
+            'cycle': self.cycle,
+            **{k: v for k, v in telemetry.items() if k.startswith('rejected_')},
+            'markets_seen': telemetry['markets_seen'],
+            'crypto_candidates': telemetry['crypto_candidates'],
+            'weather_candidates': telemetry['weather_candidates'],
+            'opportunities_found': telemetry['opportunities_found'],
+        }
+        _write_json(BASE / 'data' / 'cycle_summary.json', cycle_summary)
+        _write_json(BASE / 'data' / 'rejection_summary.json', rejection_summary)
+
+        idle_text = 'n/a' if idle_minutes is None else f'{idle_minutes:.1f}'
+        log.info(
+            'CYCLE SUMMARY | '
+            f'seen={telemetry["markets_seen"]} '
+            f'crypto={telemetry["crypto_candidates"]} '
+            f'opps={telemetry["opportunities_found"]} '
+            f'reject_signal={telemetry["rejected_signal_alignment"]} '
+            f'reject_prob={telemetry["rejected_prob_threshold"]} '
+            f'reject_edge={telemetry["rejected_edge_threshold"]} '
+            f'reject_spread={telemetry["rejected_spread_threshold"]} '
+            f'placed={telemetry["entries_placed"]} '
+            f'idle={idle_text}m'
+        )
+        log.info('Trades:'+str(stats['total_trades'])+' Open:'+str(stats['open_positions'])+' Deployed:$'+format(stats['deployed'],'.2f'))
     def run(self):
         self.running=True
         log.info('Agent STARTED | Weather+Crypto 5MIN CANDLES AGGRESSIVE | '+('DRY RUN' if self.executor.dry_run else 'LIVE'))
