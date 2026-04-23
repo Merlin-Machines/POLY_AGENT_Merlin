@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 from config import CFG
 from agent.executor import TradeExecutor
+from agent.polymarket_tool_adapter import PolymarketToolAdapter
 from manager import load_live_profile
 
 # City -> NWS station mapping for resolution source matching
@@ -32,6 +33,7 @@ CITY_COORDS = {
     'miami': (25.77, -80.19), 'seoul': (37.57, 126.98), 'tokyo': (35.69, 139.69)
 }
 NEWS_CACHE = {}
+POLY_TOOL = PolymarketToolAdapter(timeout=8)
 
 
 def _load_env():
@@ -422,19 +424,24 @@ def get_price(sym):
     return None
 
 def fetch_weather_markets():
-    markets=[]
-    for tag in ['weather','crypto','finance']:
-        try:
-            r=requests.get('https://gamma-api.polymarket.com/markets',
-                params={'active':'true','closed':'false','limit':100,'tag_slug':tag},timeout=12)
-            r.raise_for_status(); markets.extend(r.json())
-        except: pass
-    seen=set(); unique=[]
-    for m in markets:
-        mid=m.get('id','')
-        if mid not in seen: seen.add(mid); unique.append(m)
-    log.info('Total markets: '+str(len(unique)))
-    return unique
+    try:
+        markets = POLY_TOOL.get_top_markets(limit=120, tag_slugs=['weather', 'crypto', 'finance'])
+        log.info('Total markets: '+str(len(markets)))
+        return markets
+    except Exception:
+        markets=[]
+        for tag in ['weather','crypto','finance']:
+            try:
+                r=requests.get('https://gamma-api.polymarket.com/markets',
+                    params={'active':'true','closed':'false','limit':100,'tag_slug':tag},timeout=12)
+                r.raise_for_status(); markets.extend(r.json())
+            except: pass
+        seen=set(); unique=[]
+        for m in markets:
+            mid=m.get('id','')
+            if mid not in seen: seen.add(mid); unique.append(m)
+        log.info('Total markets: '+str(len(unique)))
+        return unique
 
 def _as_list(value):
     if isinstance(value, list):
@@ -521,6 +528,7 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
     max_size = float(positioning_cfg.get('max_size_usdc', 3.0) or 3.0)
     min_hours_to_expiry = max(CFG.min_hours_to_expiry, float(exits_cfg.get('avoid_expiry_minutes', 30) or 30) / 60.0)
     max_hours_to_expiry = float(exits_cfg.get('max_hours_to_expiry', CFG.max_hours_to_expiry) or CFG.max_hours_to_expiry)
+    max_spread_pct = float(analysis_cfg.get('max_spread_pct', 0.35) or 0.35)
     # Crypto markets are often farther out than weather events; avoid filtering them all out.
     if allow_crypto and not allow_weather:
         max_hours_to_expiry = max(max_hours_to_expiry, 24.0 * 365.0)
@@ -528,6 +536,7 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
         max_hours_to_expiry = max(max_hours_to_expiry, 24.0 * 30.0)
 
     opps=[]
+    spread_cache = {}
     for m in markets:
         q=m.get('question',''); ql=q.lower()
         liq=float(m.get('liquidity') or 0)
@@ -682,6 +691,18 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
         min_edge = min_edge_crypto if confidence_level.startswith('CANDLE') else min_edge_weather
         if edge<min_edge: continue
 
+        if market_type == 'CRYPTO':
+            spread = spread_cache.get(tid)
+            if spread is None:
+                spread = POLY_TOOL.get_spread(tid)
+                spread_cache[tid] = spread
+            if spread and float(spread.get('spread_pct', 0) or 0) > max_spread_pct:
+                log.info(
+                    f'SKIP SPREAD | {market_type} | {m.get("id","")[:8]} | '
+                    f'spread {float(spread.get("spread_pct", 0) or 0):.2%} > {max_spread_pct:.2%}'
+                )
+                continue
+
         conf='HIGH' if edge>=0.10 else 'MEDIUM' if edge>=0.05 else 'LOW'
         if confidence_level == 'DEEP_DISCOUNT': conf = 'ASYMMETRIC'
         if confidence_level == 'LADDER': conf = 'LADDER'
@@ -744,6 +765,7 @@ class Agent:
             signal_map={opp['market_id']: opp for opp in opps},
             manager_profile=manager_profile,
         )
+        recently_closed_ids: set = {mid for mid, _ in closed} if closed else set()
         if closed:
             for mid, reason in closed:
                 log.info(f'Position closed: {reason}')
@@ -756,6 +778,8 @@ class Agent:
             fallback_floor = max(0.01, min_edge_crypto * 0.5)
             for m in markets:
                 if m.get('id', '') in self.executor.positions:
+                    continue
+                if m.get('id', '') in recently_closed_ids:
                     continue
                 q = m.get('question', '')
                 if not is_crypto_question(q):
