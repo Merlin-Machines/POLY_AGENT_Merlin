@@ -755,6 +755,8 @@ class Agent:
             max_size = float(manager_profile.get('positioning', {}).get('max_size_usdc', 3.0) or 3.0)
             fallback_floor = max(0.01, min_edge_crypto * 0.5)
             for m in markets:
+                if m.get('id', '') in self.executor.positions:
+                    continue
                 q = m.get('question', '')
                 if not is_crypto_question(q):
                     continue
@@ -779,7 +781,7 @@ class Agent:
                 if not price or price <= 0:
                     continue
                 end_str = m.get('endDate') or m.get('end_date_iso')
-                h_left = 24.0
+                h_left = 8760.0  # default 1 year if no end date (crypto markets are long-dated)
                 if end_str:
                     for fmt in ['%Y-%m-%dT%H:%M:%SZ','%Y-%m-%dT%H:%M:%S.%fZ','%Y-%m-%d']:
                         try:
@@ -802,7 +804,9 @@ class Agent:
                     cdf = 1 - (1 / math.sqrt(2 * math.pi)) * math.exp(-x * x / 2) * poly
                     return cdf if s > 0 else 1 - cdf
 
-                direction_above = 'above' in q.lower() or 'over' in q.lower()
+                # Derive direction from whether target is above or below current price.
+                # Keyword matching ("above"/"over") misses "hit", "reach", "surpass" etc.
+                direction_above = val >= price
                 op = max(0.05, min(0.95, ncdf(d2) if direction_above else 1 - ncdf(d2)))
                 ey = op - yp
                 en = (1 - op) - np_

@@ -253,8 +253,23 @@ class TradeExecutor:
                     f"order_id={record.order_id} | {reason}"
                 )
         except Exception as exc:
+            err_str = str(exc)
+            # Phantom position: buy order was placed as limit but never filled — balance is 0 on-chain.
+            # Retrying will never succeed; remove from positions so agent can seek new trades.
+            if "balance: 0" in err_str or ("not enough balance" in err_str and "balance: 0" in err_str):
+                record.status = "phantom_unfilled"
+                record.error = err_str
+                pos.status = "phantom_unfilled"
+                self.trade_history.append(record)
+                self.positions.pop(pos.market_id, None)
+                self._save_state()
+                log.warning(
+                    "Phantom position detected (buy never filled) — removed | context=%s",
+                    exit_context,
+                )
+                return False
             record.status = "close_error"
-            record.error = str(exc)
+            record.error = err_str
             self.trade_history.append(record)
             self._save_state()
             log.exception(
