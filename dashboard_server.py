@@ -32,6 +32,8 @@ STRATEGY_FLAG = DATA_DIR / "strategy_mode.flag"
 RUNTIME_STATS_FILE = DATA_DIR / "runtime_stats.json"
 CYCLE_SUMMARY_FILE = DATA_DIR / "cycle_summary.json"
 REJECTION_SUMMARY_FILE = DATA_DIR / "rejection_summary.json"
+POLY_BTC_TELEMETRY_FILE = DATA_DIR / "poly_btc_telemetry.json"
+POLY_BTC_CONFIG_FILE = DATA_DIR / "poly_btc_config.json"
 
 
 def _utc_now() -> datetime:
@@ -186,6 +188,8 @@ class H(BaseHTTPRequestHandler):
             "/api/rejections": self._rejections,
             "/api/manager": self._manager,
             "/api/integrations": self._integrations,
+            "/api/poly_btc/telemetry": self._poly_btc_telemetry,
+            "/api/poly_btc/config": self._poly_btc_config,
         }
         if parsed.path == "/api/trading/toggle":
             query = parse_qs(parsed.query)
@@ -250,6 +254,20 @@ class H(BaseHTTPRequestHandler):
                 return
             active = activate_profile(pending["profile"])
             self._json({"ok": True, "active": active, "validation": validation, "state": self._manager()})
+            return
+        if parsed.path == "/api/poly_btc/config/patch":
+            strategy = body.get("strategy")
+            patch = body.get("patch") if isinstance(body.get("patch"), dict) else {}
+            if not strategy or not patch:
+                self._json({"ok": False, "error": "strategy and patch required"})
+                return
+            try:
+                from agent.poly_btc.registry import PolyBTCRegistry
+                reg = PolyBTCRegistry(DATA_DIR)
+                ok = reg.patch_strategy_config(strategy, patch)
+                self._json({"ok": ok, "config": reg.get_config()})
+            except Exception as exc:
+                self._json({"ok": False, "error": str(exc)})
             return
         self.send_error(404)
 
@@ -662,6 +680,32 @@ class H(BaseHTTPRequestHandler):
                 "note": "Set CHATGPT_DEV_THREAD_URL in .env if you want the manager panel to link to it.",
             },
         }
+
+    def _poly_btc_telemetry(self):
+        data = _load_json_file(POLY_BTC_TELEMETRY_FILE, {})
+        if not data:
+            # Return empty skeleton so dashboard can render without errors
+            return {
+                "strategies": {
+                    name: {"attempts": 0, "fills": 0, "misses": 0, "pnl": 0.0, "last_attempt_at": None}
+                    for name in ("conviction", "penny_flip", "collapse_snipe", "resolution_snipe")
+                },
+                "totals": {
+                    "missed_fill_count": 0,
+                    "spread_reject_count": 0,
+                    "dead_liquidity_count": 0,
+                    "orderbook_signal_count": 0,
+                    "state_classifier_counts": {
+                        label: 0 for label in
+                        ("resolved_like", "tilting", "chaotic", "dead_liquidity", "flip_candidate", "normal")
+                    },
+                },
+                "last_updated": None,
+            }
+        return data
+
+    def _poly_btc_config(self):
+        return _load_json_file(POLY_BTC_CONFIG_FILE, {})
 
     def _stats(self):
         trades = self._trades()

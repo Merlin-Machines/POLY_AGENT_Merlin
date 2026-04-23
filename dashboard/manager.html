@@ -732,6 +732,23 @@
             </div>
           </div>
         </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>POLY BTC Strategy Pack</h2>
+              <p>
+                Per-strategy telemetry and live config for the BTC-dedicated strategy pack.
+                <strong>Conviction</strong> is active (1h–48h window). Last-minute snipes are architectural stubs — enable via config when scoring is wired.
+              </p>
+            </div>
+            <button class="ghost-btn" id="reload-poly-btc" title="Reload config from disk">Reload</button>
+          </div>
+          <div class="section-body">
+            <div id="poly-btc-body"><div class="empty">Loading BTC pack data…</div></div>
+          </div>
+        </section>
+
       </div>
     </main>
   </div>
@@ -897,6 +914,54 @@
           `</div>`
         )).join("")
         : '<div class="empty">Live directive matches the saved baseline.</div>';
+    }
+
+    function renderPolyBTC(telemetry, config){
+      const strategies = ["conviction","penny_flip","collapse_snipe","resolution_snipe"];
+      const labels = {conviction:"Conviction",penny_flip:"Penny Flip",collapse_snipe:"Collapse Snipe",resolution_snipe:"Resolution Snipe"};
+      const windows = {conviction:"1h – 48h",penny_flip:"60s – 180s",collapse_snipe:"60s – 120s",resolution_snipe:"0s – 60s"};
+      const tel = telemetry?.strategies || {};
+      const cfg = config || {};
+      const totals = telemetry?.totals || {};
+      const stateCount = totals.state_classifier_counts || {};
+
+      let html = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;padding:0 0 12px">`;
+      for(const name of strategies){
+        const t = tel[name] || {attempts:0,fills:0,misses:0,pnl:0};
+        const c = cfg[name] || {};
+        const enabled = c.enabled !== false;
+        const fillRate = t.attempts > 0 ? Math.round(t.fills / t.attempts * 100) : 0;
+        const pnlSign = t.pnl >= 0 ? "tone-signal" : "tone-risk";
+        html += `<div class="metric" style="opacity:${enabled?1:.55}">
+          <label>${esc(labels[name])} <span style="font-size:9px;letter-spacing:.05em;color:${enabled?"var(--signal)":"var(--muted)"}">${enabled?"ACTIVE":"STUB"}</span></label>
+          <strong style="font-size:13px">${esc(windows[name])}</strong>
+          <small>Attempts: ${t.attempts} &nbsp;|&nbsp; Fills: ${t.fills} &nbsp;|&nbsp; Misses: ${t.misses}</small>
+          <small>Fill rate: ${fillRate}%</small>
+          <small class="${pnlSign}">P&amp;L: ${t.pnl >= 0 ? "+" : ""}${Number(t.pnl).toFixed(4)} USDC</small>
+          <small>Edge min: ${c.min_edge != null ? (c.min_edge*100).toFixed(1)+"%" : "—"} &nbsp;|&nbsp; Max size: $${c.max_size_usdc ?? "—"}</small>
+          <small>Max spread: ${c.max_spread_pct != null ? (c.max_spread_pct*100).toFixed(0)+"%" : "—"} &nbsp;|&nbsp; Cooldown: ${c.cooldown_seconds ?? "—"}s</small>
+        </div>`;
+      }
+      html += `</div>`;
+
+      html += `<div style="display:flex;flex-wrap:wrap;gap:10px;padding:4px 0 12px">`;
+      html += `<div class="metric" style="flex:1;min-width:160px"><label>Missed fills</label><strong>${totals.missed_fill_count ?? 0}</strong></div>`;
+      html += `<div class="metric" style="flex:1;min-width:160px"><label>Spread rejects</label><strong>${totals.spread_reject_count ?? 0}</strong></div>`;
+      html += `<div class="metric" style="flex:1;min-width:160px"><label>Dead liquidity</label><strong>${totals.dead_liquidity_count ?? 0}</strong></div>`;
+      html += `<div class="metric" style="flex:1;min-width:160px"><label>OB signals</label><strong>${totals.orderbook_signal_count ?? 0}</strong></div>`;
+      html += `</div>`;
+
+      const stateLabels = {resolved_like:"Resolved-like",tilting:"Tilting",chaotic:"Chaotic",dead_liquidity:"Dead liq.",flip_candidate:"Flip cand.",normal:"Normal"};
+      html += `<div style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">State classifier</div>`;
+      html += `<div style="display:flex;flex-wrap:wrap;gap:8px;padding-bottom:4px">`;
+      for(const [k,label] of Object.entries(stateLabels)){
+        html += `<span class="pill">${label}: <strong>${stateCount[k] ?? 0}</strong></span>`;
+      }
+      html += `</div>`;
+      if(telemetry?.last_updated){
+        html += `<div style="font-size:10px;color:var(--muted);padding-top:8px">Last updated: ${esc(telemetry.last_updated)}</div>`;
+      }
+      document.getElementById("poly-btc-body").innerHTML = html;
     }
 
     function renderLog(lines){
@@ -1089,7 +1154,7 @@
 
     async function refresh(){
       try{
-        const [stats, kpi, manager, trading, integrations, log, prices] = await Promise.all([
+        const [stats, kpi, manager, trading, integrations, log, prices, polyBtcTel, polyBtcCfg] = await Promise.all([
           api("/api/stats"),
           api("/api/kpi"),
           api("/api/manager"),
@@ -1097,6 +1162,8 @@
           api("/api/integrations"),
           api("/api/log"),
           api("/api/prices"),
+          api("/api/poly_btc/telemetry").catch(() => null),
+          api("/api/poly_btc/config").catch(() => null),
         ]);
         state.stats = stats;
         state.kpi = kpi;
@@ -1110,6 +1177,7 @@
         renderReview(manager);
         renderValidation(manager);
         renderIntegrations(integrations);
+        renderPolyBTC(polyBtcTel, polyBtcCfg);
         renderLog(log);
       }catch(err){
         toast(`Refresh failed: ${err.message}`);
@@ -1123,6 +1191,13 @@
     document.getElementById("apply-knobs").addEventListener("click", applyKnobs);
     document.getElementById("toggle-trading").addEventListener("click", toggleTrading);
     document.getElementById("refresh-now").addEventListener("click", refresh);
+    document.getElementById("reload-poly-btc").addEventListener("click", async () => {
+      try {
+        const [tel, cfg] = await Promise.all([api("/api/poly_btc/telemetry"), api("/api/poly_btc/config")]);
+        renderPolyBTC(tel, cfg);
+        toast("BTC pack config reloaded.");
+      } catch(e){ toast(`Reload failed: ${e.message}`); }
+    });
     document.getElementById("reload-tv").addEventListener("click", () => {
       state.renderedSymbol = null;
       renderTradingView(document.getElementById("tv-symbol").value, state.integrations?.tradingview || {});

@@ -16,6 +16,7 @@ from config import CFG
 from agent.executor import TradeExecutor
 from agent.polymarket_tool_adapter import PolymarketToolAdapter
 from manager import load_live_profile
+from agent.poly_btc import PolyBTCRegistry
 
 # City -> NWS station mapping for resolution source matching
 CITIES = {
@@ -34,6 +35,14 @@ CITY_COORDS = {
 }
 NEWS_CACHE = {}
 POLY_TOOL = PolymarketToolAdapter(timeout=8)
+
+# BTC strategy pack — initialised once at startup; executor wired in Agent.__init__
+try:
+    POLY_BTC_REGISTRY = PolyBTCRegistry(BASE / 'data')
+    log.info('POLY_BTC_REGISTRY | initialised')
+except Exception as _pbtc_err:
+    POLY_BTC_REGISTRY = None
+    log.warning(f'POLY_BTC_REGISTRY | init failed: {_pbtc_err}')
 
 
 def _load_env():
@@ -780,6 +789,8 @@ class Agent:
     def __init__(self):
         self.executor=TradeExecutor(CFG); self.running=False; self.cycle=0
         signal.signal(signal.SIGINT,self._stop); signal.signal(signal.SIGTERM,self._stop)
+        if POLY_BTC_REGISTRY:
+            POLY_BTC_REGISTRY.set_executor(self.executor)
     def _stop(self,*a): self.running=False
     def run_cycle(self):
         self.cycle+=1
@@ -821,6 +832,24 @@ class Agent:
         if not markets: return
         market_snapshot = build_market_snapshot(markets)
         opps, telemetry = analyze(markets,prices,weather_cache,candle_data,news_data,mode,manager_profile)
+
+        # ===== POLY BTC STRATEGY PACK (runs alongside main analyze) =====
+        if POLY_BTC_REGISTRY and 'BTC' in candle_data and prices.get('BTC'):
+            btc_markets = [m for m in markets if is_crypto_question(m.get('question',''))
+                           and re.search(r'\b(btc|bitcoin)\b', m.get('question','').lower())]
+            btc_pack_opps = POLY_BTC_REGISTRY.scan(
+                btc_markets=btc_markets,
+                candle_analysis=candle_data['BTC'],
+                current_price=prices['BTC'],
+                get_spread_fn=POLY_TOOL.get_spread,
+            )
+            if POLY_BTC_REGISTRY.orderbook_runtime:
+                POLY_BTC_REGISTRY.orderbook_runtime.update_context(candle_data['BTC'], prices['BTC'])
+                POLY_BTC_REGISTRY.orderbook_runtime.update_markets(btc_markets)
+            if btc_pack_opps:
+                log.info(f'POLY_BTC_PACK | {len(btc_pack_opps)} opp(s) prepended to cycle')
+                opps = btc_pack_opps + opps  # pack strategies take priority
+
         closed = self.executor.check_exits(
             market_snapshot=market_snapshot,
             signal_map={opp['market_id']: opp for opp in opps},
