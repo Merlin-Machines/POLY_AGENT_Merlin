@@ -189,9 +189,20 @@ class TradeExecutor:
         from py_clob_client.clob_types import OrderArgs
         from py_clob_client.order_builder.constants import BUY
 
+        # Use the live ask price so the FOK order matches immediately.
+        live_price = price
+        try:
+            quote = self.client.get_price(token_id, "BUY")
+            if isinstance(quote, dict):
+                live_price = float(quote.get("price") or price)
+        except Exception:
+            pass
+        live_price = max(0.01, min(float(live_price), 0.99))
+        if abs(live_price - price) > 0.05:
+            log.warning(f"Live ask {live_price:.4f} differs significantly from expected {price:.4f} — using live ask")
         order_args = OrderArgs(
             token_id=token_id,
-            price=round(price, 4),
+            price=round(live_price, 4),
             size=round(shares, 4),
             side=BUY,
         )
