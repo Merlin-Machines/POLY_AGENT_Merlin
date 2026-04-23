@@ -200,7 +200,21 @@ class TradeExecutor:
         )
         order = self.client.create_market_order(order_args)
         response = self.client.post_order(order, OrderType.FOK)
-        return str(response.get("orderID", ""))
+        order_id = str(response.get("orderID", ""))
+        # Verify the market FOK actually filled — a FOK that can't fill is silently cancelled.
+        import time; time.sleep(2.0)
+        try:
+            order_detail = self.client.get_order(order_id)
+            status = (order_detail.get("status") or "").upper()
+            size_matched = float(order_detail.get("size_matched") or 0)
+            log.info(f"Market order status: status={status} size_matched={size_matched}")
+            if "CANCEL" in status and size_matched == 0:
+                raise RuntimeError(f"Market FOK cancelled without fill: status={status}")
+        except RuntimeError:
+            raise
+        except Exception as ve:
+            log.warning(f"Order verification skipped: {ve}")
+        return order_id
 
     def _place_exit_order(self, token_id: str, price: float, shares: float) -> str:
         from py_clob_client.clob_types import OrderArgs
