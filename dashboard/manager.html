@@ -494,6 +494,8 @@
             <div class="pill" id="directive-pill">Directive: loading</div>
             <div class="pill" id="baseline-pill">Baseline: loading</div>
             <div class="pill" id="mode-pill">Mode: loading</div>
+            <div class="pill" id="price-btc">BTC: —</div>
+            <div class="pill" id="price-eth">ETH: —</div>
           </div>
           <div class="status-band">
             <div class="metric">
@@ -1087,13 +1089,14 @@
 
     async function refresh(){
       try{
-        const [stats, kpi, manager, trading, integrations, log] = await Promise.all([
+        const [stats, kpi, manager, trading, integrations, log, prices] = await Promise.all([
           api("/api/stats"),
           api("/api/kpi"),
           api("/api/manager"),
           api("/api/trading"),
           api("/api/integrations"),
           api("/api/log"),
+          api("/api/prices"),
         ]);
         state.stats = stats;
         state.kpi = kpi;
@@ -1102,6 +1105,8 @@
         state.integrations = integrations;
         syncForm(manager);
         renderTop(stats, kpi, manager, trading);
+        if(prices?.BTC) document.getElementById("price-btc").textContent = `BTC $${Number(prices.BTC).toLocaleString(undefined,{maximumFractionDigits:0})}`;
+        if(prices?.ETH) document.getElementById("price-eth").textContent = `ETH $${Number(prices.ETH).toLocaleString(undefined,{maximumFractionDigits:0})}`;
         renderReview(manager);
         renderValidation(manager);
         renderIntegrations(integrations);
