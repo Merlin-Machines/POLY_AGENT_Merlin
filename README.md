@@ -5,6 +5,22 @@ Autonomous Polymarket CLOB trading agent with weather + crypto strategies,
 
 ---
 
+## Collaboration
+
+This repo is the live runtime side of the project.
+
+- Runtime repo: `Merlin-Machines/POLY_AGENT_Merlin`
+- Current manager control surface: `dashboard_server.py`
+- Current manager brain: `manager.py`
+- Shared manager/interface repo: `Merlin-Machines/vault`
+- Shared manager PR: `https://github.com/Merlin-Machines/vault/pull/2`
+
+For the current runtime-to-manager handoff map, see:
+
+- `docs/RUNTIME_HANDOFF.md`
+
+---
+
 ## 1. What's in this folder
 
 ```

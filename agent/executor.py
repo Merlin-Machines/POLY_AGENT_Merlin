@@ -50,12 +50,24 @@ class TradeExecutor:
     def __init__(self, config):
         self.cfg = config
         self.dry_run = not bool(config.private_key)
+        self.runtime_health_reason = "missing_private_key" if self.dry_run else "live_requested"
         self.positions = {}
         self.trade_history = []
         self._daily_pnl = 0.0
         self._daily_trades = 0
         self._today = date.today()
+        self._orders_placed_today = 0
+        self._orders_closed_today = 0
+        self._last_live_entry_at: Optional[str] = None
+        self._last_live_exit_at: Optional[str] = None
+        self.blocked_entry_count = 0
+        self.blocked_exit_count = 0
+        self.exit_failure_count = 0
+        self._last_exit_attempt_count = 0
+        self._last_exit_closed_count = 0
+        self._profit_by_symbol_bucket: dict[str, float] = {}
         self.client = None
+        self._exit_cooldown: dict = {}  # market_id -> exit datetime (UTC)
         Path(config.log_dir).mkdir(exist_ok=True)
         Path(config.data_dir).mkdir(exist_ok=True)
         self._load_state()
@@ -86,6 +98,7 @@ class TradeExecutor:
                 api_creds = self.client.create_or_derive_api_creds()
                 self.client.set_api_creds(api_creds)
                 log.info(f"Polymarket CLOB connected | API creds derived: {api_creds.api_key[:8]}...")
+                self.runtime_health_reason = "live_connected"
             except Exception as cred_err:
                 log.error(f"API creds derivation failed: {cred_err}")
                 if self.cfg.api_key:
@@ -98,15 +111,49 @@ class TradeExecutor:
                     )
                     self.client.set_api_creds(creds)
                     log.info("Polymarket connected with env credentials")
+                    self.runtime_health_reason = "live_connected_env_api_creds"
                 else:
                     raise cred_err
         except Exception as exc:
             log.error(f"Client failed: {exc}")
             self.dry_run = True
+            self.runtime_health_reason = f"client_init_failed:{type(exc).__name__}"
+        else:
+            self._cancel_stale_open_orders()
+
+    def _cancel_stale_open_orders(self):
+        """Cancel any unfilled open orders from previous sessions to free USDC allowance."""
+        try:
+            from datetime import timezone as tz
+            orders = self.client.get_orders() or []
+            now = datetime.now(tz.utc)
+            stale_ids = []
+            for o in orders:
+                created = o.get("created_at") or o.get("createdAt") or ""
+                order_id = o.get("id") or o.get("order_id") or o.get("orderID") or ""
+                if not order_id:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    age_minutes = (now - ts).total_seconds() / 60
+                    if age_minutes > 30:
+                        stale_ids.append(order_id)
+                except Exception:
+                    stale_ids.append(order_id)
+            if stale_ids:
+                self.client.cancel_orders(stale_ids)
+                log.info(f"Cancelled {len(stale_ids)} stale open orders on startup: {stale_ids[:3]}...")
+            else:
+                log.info(f"No stale open orders ({len(orders)} total open)")
+        except Exception as exc:
+            log.warning(f"Could not cancel stale orders (non-critical): {exc}")
 
     def _price_to_shares(self, price: float, size_usdc: float) -> float:
         price = max(float(price or 0), 0.01)
         return round(max(size_usdc / price, 0.0001), 4)
+
+    def _minimum_live_exit_shares(self) -> float:
+        return 5.0 if not self.dry_run else 0.0
 
     def _positioning_cfg(self, manager_profile: Optional[dict]) -> dict:
         return (manager_profile or {}).get("positioning", {})
@@ -154,30 +201,63 @@ class TradeExecutor:
         )
 
     def _place_entry_order(self, token_id: str, price: float, shares: float) -> str:
-        from py_clob_client.clob_types import OrderArgs
+        from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
 
-        order_args = OrderArgs(
+        # Market FOK: buy $amount USDC worth at the best available ask price.
+        # This avoids placing limit orders below the actual ask that never fill.
+        usdc_amount = round(price * shares, 4)
+        order_args = MarketOrderArgs(
             token_id=token_id,
-            price=round(price, 4),
-            size=round(shares, 4),
+            amount=usdc_amount,
             side=BUY,
+            order_type=OrderType.FOK,
         )
-        response = self.client.create_and_post_order(order_args)
-        return str(response.get("orderID", ""))
+        order = self.client.create_market_order(order_args)
+        response = self.client.post_order(order, OrderType.FOK)
+        order_id = str(response.get("orderID", ""))
+        # Verify the market FOK actually filled — a FOK that can't fill is silently cancelled.
+        import time; time.sleep(2.0)
+        try:
+            order_detail = self.client.get_order(order_id)
+            status = (order_detail.get("status") or "").upper()
+            size_matched = float(order_detail.get("size_matched") or 0)
+            log.info(f"Market order status: status={status} size_matched={size_matched}")
+            if "CANCEL" in status and size_matched == 0:
+                raise RuntimeError(f"Market FOK cancelled without fill: status={status}")
+        except RuntimeError:
+            raise
+        except Exception as ve:
+            log.warning(f"Order verification skipped: {ve}")
+        return order_id
 
     def _place_exit_order(self, token_id: str, price: float, shares: float) -> str:
-        from py_clob_client.clob_types import OrderArgs
+        from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
+        import time
 
-        order_args = OrderArgs(
+        order_args = MarketOrderArgs(
             token_id=token_id,
-            price=round(price, 4),
-            size=round(shares, 4),
+            amount=round(shares, 4),
             side=SELL,
+            order_type=OrderType.FOK,
         )
-        response = self.client.create_and_post_order(order_args)
-        return str(response.get("orderID", ""))
+        order = self.client.create_market_order(order_args)
+        response = self.client.post_order(order, OrderType.FOK)
+        order_id = str(response.get("orderID", ""))
+        time.sleep(2.0)
+        try:
+            order_detail = self.client.get_order(order_id)
+            status = (order_detail.get("status") or "").upper()
+            size_matched = float(order_detail.get("size_matched") or 0)
+            log.info(f"Exit market order: status={status} size_matched={size_matched}")
+            if "CANCEL" in status and size_matched == 0:
+                raise RuntimeError(f"Exit FOK cancelled without fill: status={status}")
+        except RuntimeError:
+            raise
+        except Exception as ve:
+            log.warning(f"Exit order verification skipped: {ve}")
+        return order_id
 
     def _resolve_exit_price(self, pos: Position, current_price: Optional[float]) -> float:
         price = current_price or pos.last_price or pos.entry_price or 0.5
@@ -208,35 +288,100 @@ class TradeExecutor:
             shares=pos.shares,
             order_action="exit",
         )
+        exit_context = {
+            "market_id": pos.market_id,
+            "token_id": pos.token_id,
+            "side": pos.side,
+            "shares": round(pos.shares, 4),
+            "requested_price": round(exit_price, 4),
+            "entry_price": round(pos.entry_price, 4),
+            "reason": reason,
+        }
+
+        min_live_shares = self._minimum_live_exit_shares()
+        if min_live_shares and pos.shares < min_live_shares:
+            record.status = "close_blocked_min_size"
+            record.error = (
+                f"Position has {pos.shares:.4f} shares, below live exit floor {min_live_shares:.1f}."
+            )
+            self.blocked_exit_count += 1
+            pos.status = "blocked_min_size"
+            pos.last_price = exit_price
+            self.trade_history.append(record)
+            self._save_state()
+            log.warning(
+                "Exit blocked (min size) | context=%s | floor=%s",
+                exit_context,
+                f"{min_live_shares:.1f}",
+            )
+            return False
 
         try:
             if self.dry_run:
                 record.status = "closed_dry_run"
                 log.info(
-                    f"[DRY RUN EXIT] {pos.side} {pos.symbol} ${pos.size_usdc:.2f} "
-                    f"at {exit_price:.3f} | {reason}"
+                    f"[DRY RUN EXIT] market={pos.market_id} token={pos.token_id} side={pos.side} "
+                    f"shares={pos.shares:.4f} req={exit_price:.3f} entry={pos.entry_price:.3f} reason={reason}"
                 )
             else:
                 record.order_id = self._place_exit_order(pos.token_id, exit_price, pos.shares)
                 record.status = "closed"
+                self._orders_closed_today += 1
+                self._last_live_exit_at = datetime.utcnow().isoformat()
+                self.runtime_health_reason = "live_connected"
                 log.info(
-                    f"LIVE EXIT {pos.side} {pos.symbol} shares={pos.shares:.4f} "
-                    f"order_id={record.order_id} | {reason}"
+                    f"LIVE EXIT market={pos.market_id} token={pos.token_id} side={pos.side} "
+                    f"shares={pos.shares:.4f} req={exit_price:.3f} entry={pos.entry_price:.3f} "
+                    f"reason={reason} order_id={record.order_id}"
                 )
         except Exception as exc:
+            err_str = str(exc)
+            # Phantom position: buy order was placed as limit but never filled — balance is 0 on-chain.
+            # Retrying will never succeed; remove from positions so agent can seek new trades.
+            if "balance: 0" in err_str or ("not enough balance" in err_str and "balance: 0" in err_str):
+                record.status = "phantom_unfilled"
+                record.error = err_str
+                pos.status = "phantom_unfilled"
+                self.trade_history.append(record)
+                self.positions.pop(pos.market_id, None)
+                self._save_state()
+                log.warning(
+                    "Phantom position detected (buy never filled) — removed | context=%s",
+                    exit_context,
+                )
+                return False
             record.status = "close_error"
-            record.error = str(exc)
+            record.error = err_str
+            self.exit_failure_count += 1
             self.trade_history.append(record)
             self._save_state()
-            log.error(f"Exit failed: {exc}")
+            log.exception(
+                "Exit failed | context=%s | exception_type=%s | exception=%r",
+                exit_context,
+                type(exc).__name__,
+                exc,
+            )
             return False
 
         realized = (exit_price - pos.entry_price) * pos.shares
         self._daily_pnl += realized
+        self._profit_by_symbol_bucket[pos.symbol] = round(
+            float(self._profit_by_symbol_bucket.get(pos.symbol, 0.0)) + realized,
+            6,
+        )
         self.trade_history.append(record)
-        self.positions.pop(pos.market_id, None)
+        market_id_closed = pos.market_id
+        self.positions.pop(market_id_closed, None)
+        self._exit_cooldown[market_id_closed] = datetime.utcnow()
         self._save_state()
         return True
+
+    def in_exit_cooldown(self, market_id: str, cooldown_minutes: float = 30.0) -> bool:
+        exited_at = self._exit_cooldown.get(market_id)
+        if not exited_at:
+            return False
+        age_minutes = (datetime.utcnow() - exited_at).total_seconds() / 60
+        return age_minutes < cooldown_minutes
 
     def _can_dca(self, existing: Position, opp, manager_profile: Optional[dict]) -> bool:
         cfg = self._positioning_cfg(manager_profile)
@@ -258,6 +403,16 @@ class TradeExecutor:
     def _execute_dca(self, existing: Position, opp, manager_profile: Optional[dict]) -> TradeRecord:
         shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
         record = self._trade_record(opp, shares, action="dca")
+        min_live_shares = self._minimum_live_exit_shares()
+        if min_live_shares and existing.shares + shares < min_live_shares:
+            record.status = "skipped"
+            record.error = (
+                f"dca_below_min_exitable_shares:{existing.shares + shares:.4f}<{min_live_shares:.1f}"
+            )
+            self.blocked_entry_count += 1
+            self.trade_history.append(record)
+            self._save_state()
+            return record
         try:
             if self.dry_run:
                 record.status = "dry_run"
@@ -268,6 +423,9 @@ class TradeExecutor:
             else:
                 record.order_id = self._place_entry_order(opp.best_token_id, opp.best_market_price, shares)
                 record.status = "placed"
+                self._orders_placed_today += 1
+                self._last_live_entry_at = datetime.utcnow().isoformat()
+                self.runtime_health_reason = "live_connected"
                 log.info(
                     f"LIVE DCA {opp.best_side} ${opp.trade_size:.2f} {opp.market.symbol} "
                     f"shares={shares:.4f} order_id={record.order_id}"
@@ -301,6 +459,8 @@ class TradeExecutor:
         if date.today() != self._today:
             self._daily_pnl = 0.0
             self._daily_trades = 0
+            self._orders_placed_today = 0
+            self._orders_closed_today = 0
             self._today = date.today()
         if self._daily_pnl <= -self.cfg.max_daily_loss:
             return False, "Daily loss limit"
@@ -312,10 +472,57 @@ class TradeExecutor:
 
     def execute(self, opp, manager_profile: Optional[dict] = None):
         market = opp.market
+        position_cfg = self._positioning_cfg(manager_profile)
+        max_position_size = float(
+            position_cfg.get(
+                "max_size_usdc",
+                getattr(self.cfg, "max_trade_usdc", opp.trade_size),
+            )
+            or getattr(self.cfg, "max_trade_usdc", opp.trade_size)
+        )
         shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
         record = self._trade_record(opp, shares)
+        min_live_shares = self._minimum_live_exit_shares()
+        if min_live_shares and shares < min_live_shares:
+            required_size = round((min_live_shares * float(opp.best_market_price)) + 0.01, 2)
+            if required_size <= max_position_size:
+                opp.trade_size = max(float(opp.trade_size), required_size)
+                shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
+                record.size_usdc = opp.trade_size
+                record.shares = shares
+                log.info(
+                    f"Upsized live entry for {market.market_id} to ${opp.trade_size:.2f} "
+                    f"to satisfy min share floor {min_live_shares:.1f}"
+                )
+            else:
+                record.status = "skipped"
+                record.error = "below_min_exitable_shares"
+                self.blocked_entry_count += 1
+                self.trade_history.append(record)
+                self._save_state()
+                log.warning(
+                    f"Skipped live entry for {market.market_id}: shares={shares:.4f} below live exit floor {min_live_shares:.1f}"
+                )
+                return record
         existing = self.positions.get(market.market_id)
         if existing:
+            if (
+                existing.status == "blocked_min_size"
+                and min_live_shares
+                and existing.side == opp.best_side
+                and existing.shares < min_live_shares
+            ):
+                needed_shares = max(0.0, min_live_shares - existing.shares)
+                needed_size = round((needed_shares * float(opp.best_market_price)) + 0.01, 2)
+                room = max(0.0, max_position_size - existing.size_usdc)
+                if room > 0:
+                    opp.trade_size = min(max(opp.trade_size, needed_size), room)
+                    if opp.trade_size > 0:
+                        log.info(
+                            f"Rescue DCA for blocked position {market.market_id}: "
+                            f"add ${opp.trade_size:.2f} to reach exitable size."
+                        )
+                        return self._execute_dca(existing, opp, manager_profile)
             if self._can_dca(existing, opp, manager_profile):
                 return self._execute_dca(existing, opp, manager_profile)
             record.status = "skipped"
@@ -342,6 +549,9 @@ class TradeExecutor:
             else:
                 record.order_id = self._place_entry_order(opp.best_token_id, opp.best_market_price, shares)
                 record.status = "placed"
+                self._orders_placed_today += 1
+                self._last_live_entry_at = datetime.utcnow().isoformat()
+                self.runtime_health_reason = "live_connected"
                 log.info(
                     f"LIVE BUY {opp.best_side} ${opp.trade_size:.2f} {market.symbol} "
                     f"shares={shares:.4f} order_id={record.order_id}"
@@ -365,10 +575,21 @@ class TradeExecutor:
             json.dump([asdict(t) for t in self.trade_history], fh, indent=2)
         with open(os.path.join(self.cfg.data_dir, "positions.json"), "w", encoding="utf-8") as fh:
             json.dump({key: asdict(value) for key, value in self.positions.items()}, fh, indent=2)
+        cooldown_path = os.path.join(self.cfg.data_dir, "exit_cooldown.json")
+        with open(cooldown_path, "w", encoding="utf-8") as fh:
+            json.dump({k: v.isoformat() for k, v in self._exit_cooldown.items()}, fh)
 
     def _load_state(self):
         trades_path = os.path.join(self.cfg.data_dir, "trades.json")
         positions_path = os.path.join(self.cfg.data_dir, "positions.json")
+        cooldown_path = os.path.join(self.cfg.data_dir, "exit_cooldown.json")
+        if os.path.exists(cooldown_path):
+            try:
+                with open(cooldown_path, encoding="utf-8") as fh:
+                    raw = json.load(fh)
+                    self._exit_cooldown = {k: datetime.fromisoformat(v) for k, v in raw.items()}
+            except Exception:
+                pass
         if os.path.exists(trades_path):
             try:
                 with open(trades_path, encoding="utf-8") as fh:
@@ -401,7 +622,10 @@ class TradeExecutor:
 
         now = datetime.utcnow()
         closed = []
+        attempted = 0
         for market_id, pos in list(self.positions.items()):
+            if pos.status == "blocked_min_size":
+                continue
             try:
                 opened = datetime.fromisoformat(pos.opened_at.replace("Z", "+00:00"))
             except Exception:
@@ -434,17 +658,68 @@ class TradeExecutor:
 
             if not reason:
                 continue
+            attempted += 1
             if self._close_position(pos, reason, current_price):
                 closed.append((market_id, reason))
+        self._last_exit_attempt_count = attempted
+        self._last_exit_closed_count = len(closed)
         return closed
+
+    def _idle_minutes_since_last_live_order(self):
+        stamps = []
+        for raw in (self._last_live_entry_at, self._last_live_exit_at):
+            if not raw:
+                continue
+            try:
+                stamps.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+            except Exception:
+                continue
+        if not stamps:
+            return None
+        latest = max(stamps)
+        return round(max(0.0, (datetime.utcnow() - latest).total_seconds() / 60.0), 2)
+
+    def _trapped_position_count(self) -> int:
+        return sum(1 for pos in self.positions.values() if pos.status == "blocked_min_size")
+
+    def _unrealized_pnl_open(self) -> float:
+        total = 0.0
+        for pos in self.positions.values():
+            px = pos.last_price or pos.entry_price
+            total += (float(px) - float(pos.entry_price)) * float(pos.shares)
+        return round(total, 6)
+
+    def _write_runtime_stats(self, payload: dict):
+        try:
+            path = os.path.join(self.cfg.data_dir, "runtime_stats.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
+        except Exception as exc:
+            log.debug(f"runtime_stats write failed: {exc}")
 
     @property
     def stats(self):
         placed = [trade for trade in self.trade_history if trade.status in ("placed", "dry_run")]
-        return {
+        payload = {
             "total_trades": len(placed),
             "open_positions": len(self.positions),
             "deployed": sum(trade.size_usdc for trade in placed),
             "daily_pnl": self._daily_pnl,
             "mode": "DRY RUN" if self.dry_run else "LIVE",
+            "runtime_health_reason": self.runtime_health_reason,
+            "orders_placed_today": self._orders_placed_today,
+            "orders_closed_today": self._orders_closed_today,
+            "last_live_entry_at": self._last_live_entry_at,
+            "last_live_exit_at": self._last_live_exit_at,
+            "idle_minutes_since_last_live_order": self._idle_minutes_since_last_live_order(),
+            "blocked_entry_count": self.blocked_entry_count,
+            "blocked_exit_count": self.blocked_exit_count,
+            "exit_failure_count": self.exit_failure_count,
+            "trapped_position_count": self._trapped_position_count(),
+            "unrealized_pnl_open": self._unrealized_pnl_open(),
+            "profit_by_symbol_bucket": self._profit_by_symbol_bucket,
+            "exits_attempted_last_cycle": self._last_exit_attempt_count,
+            "exits_closed_last_cycle": self._last_exit_closed_count,
         }
+        self._write_runtime_stats(payload)
+        return payload
