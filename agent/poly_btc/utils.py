@@ -40,6 +40,63 @@ def ncdf(x: float) -> float:
     return cdf if s > 0 else 1 - cdf
 
 
+def snipe_resolution_prob(
+    btc_price: float,
+    target: float,
+    seconds_to_expiry: float,
+    candle_analysis: dict,
+) -> tuple[float, float]:
+    """
+    Near-expiry resolution probability for BTC price markets.
+
+    Returns (resolution_prob_yes, abs_gap_pct).
+    resolution_prob_yes → probability that YES resolves (BTC hit / is above target).
+
+    Logic:
+      - BTC above target → YES resolves → high probability
+      - BTC below target → NO resolves → low yes-probability
+      - Certainty increases as |gap| grows and as time runs out
+      - Candle momentum gives a small nudge in the direction of movement
+    """
+    if target <= 0 or btc_price <= 0:
+        return 0.5, 0.0
+
+    gap_pct = (btc_price - target) / target
+    abs_gap = abs(gap_pct)
+
+    # Base certainty from BTC distance to target
+    if abs_gap >= 0.05:
+        base_cert = 0.93
+    elif abs_gap >= 0.02:
+        base_cert = 0.82
+    elif abs_gap >= 0.005:
+        base_cert = 0.67
+    else:
+        base_cert = 0.52
+
+    # Time pressure: certainty tightens as expiry approaches
+    time_factor = max(0.0, 1.0 - seconds_to_expiry / 180.0)
+    certainty = min(0.97, base_cert + time_factor * 0.04)
+
+    # Candle momentum nudge (small — structural gap dominates)
+    momentum = candle_analysis.get("momentum", 0.0)
+    trend = candle_analysis.get("trend", "neutral")
+    nudge = 0.0
+    if gap_pct > 0:   # BTC above target, YES favoured
+        if momentum > 0.25 or trend == "up":   nudge = +0.015
+        elif momentum < -0.25 or trend == "down": nudge = -0.01
+    else:             # BTC below target, NO favoured
+        if momentum < -0.25 or trend == "down": nudge = -0.015
+        elif momentum > 0.25 or trend == "up":  nudge = +0.01
+
+    if gap_pct > 0:
+        prob_yes = max(0.50, min(0.97, certainty + nudge))
+    else:
+        prob_yes = max(0.03, min(0.50, 1.0 - certainty + nudge))
+
+    return prob_yes, abs_gap
+
+
 def black_scholes_prob(
     current: float,
     target: float,

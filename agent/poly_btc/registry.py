@@ -42,7 +42,8 @@ DEFAULT_CONFIGS: dict[str, dict] = {
     "conviction": {
         "enabled": True,
         "seconds_remaining_min": 3600.0,
-        "seconds_remaining_max": 172800.0,
+        # 1 year: captures long-dated "before GTA VI" / "before 2026" BTC markets
+        "seconds_remaining_max": 31_536_000.0,
         "entry_order_type": "FOK",
         "exit_order_type": "FOK",
         "entry_tif": "IOC",
@@ -59,7 +60,7 @@ DEFAULT_CONFIGS: dict[str, dict] = {
         "min_edge": 0.05,
     },
     "penny_flip": {
-        "enabled": False,          # stub: disabled until scoring is wired
+        "enabled": True,
         "seconds_remaining_min": 60.0,
         "seconds_remaining_max": 180.0,
         "entry_order_type": "FOK",
@@ -78,7 +79,7 @@ DEFAULT_CONFIGS: dict[str, dict] = {
         "min_edge": 0.08,
     },
     "collapse_snipe": {
-        "enabled": False,          # stub: disabled until scoring is wired
+        "enabled": True,
         "seconds_remaining_min": 60.0,
         "seconds_remaining_max": 120.0,
         "entry_order_type": "FOK",
@@ -87,7 +88,7 @@ DEFAULT_CONFIGS: dict[str, dict] = {
         "exit_tif": "IOC",
         "stop_loss_pct": 0.25,
         "profit_take_pct": 0.40,
-        "max_entry_price": 0.35,
+        "max_entry_price": 0.85,   # pay up to 85¢ for the resolving side
         "max_spread_pct": 0.30,
         "max_size_usdc": 1.5,
         "cooldown_seconds": 60,
@@ -97,7 +98,7 @@ DEFAULT_CONFIGS: dict[str, dict] = {
         "min_edge": 0.10,
     },
     "resolution_snipe": {
-        "enabled": False,          # stub: disabled until scoring is wired
+        "enabled": True,
         "seconds_remaining_min": 0.0,
         "seconds_remaining_max": 60.0,
         "entry_order_type": "FOK",
@@ -106,7 +107,7 @@ DEFAULT_CONFIGS: dict[str, dict] = {
         "exit_tif": "IOC",
         "stop_loss_pct": 0.50,
         "profit_take_pct": 0.50,
-        "max_entry_price": 0.20,
+        "max_entry_price": 0.85,   # pay up to 85¢ for near-certain resolution
         "max_spread_pct": 0.40,
         "max_size_usdc": 1.0,
         "cooldown_seconds": 30,
