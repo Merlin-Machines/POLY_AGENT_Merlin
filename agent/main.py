@@ -17,6 +17,8 @@ from agent.executor import TradeExecutor
 from agent.polymarket_tool_adapter import PolymarketToolAdapter
 from manager import load_live_profile
 from agent.poly_btc import PolyBTCRegistry
+from utils.indicators import FEATURE_COLS, build_feature_snapshot, technical_signal
+from utils.ml_filter import MLFilter
 
 # City -> NWS station mapping for resolution source matching
 CITIES = {
@@ -346,6 +348,8 @@ def get_5min_candles(sym):
 
 def analyze_candles(candles):
     """Technical analysis on 5-min candles - RSI/RA, momentum, trend, MACD, Bollinger."""
+    feature_snapshot = build_feature_snapshot(candles or [])
+    sf_signal, sf_details = technical_signal(feature_snapshot)
     if not candles or len(candles) < 5:
         return {
             'rsi': 50,
@@ -360,6 +364,9 @@ def analyze_candles(candles):
             'bollinger_lower': 0.0,
             'bollinger_bandwidth': 0.0,
             'bollinger_signal': 'neutral',
+            'silverfox_signal': sf_signal,
+            'silverfox_reason': sf_details.get('reason', ''),
+            'silverfox_features': feature_snapshot,
         }
 
     closes = [c['close'] for c in candles]
@@ -418,6 +425,9 @@ def analyze_candles(candles):
         'bollinger_lower': round(lower, 4),
         'bollinger_bandwidth': round(bandwidth, 4),
         'bollinger_signal': bollinger_signal,
+        'silverfox_signal': sf_signal,
+        'silverfox_reason': sf_details.get('reason', ''),
+        'silverfox_features': feature_snapshot,
     }
 
 def get_price(sym):
@@ -539,6 +549,7 @@ def _new_rejection_summary():
         'rejected_spread_threshold': 0,
         'rejected_already_in_position': 0,
         'rejected_recently_closed': 0,
+        'rejected_ml_filter': 0,
         'rejected_trade_limit': 0,
         'rejected_disabled_by_dashboard': 0,
     }
@@ -788,10 +799,49 @@ def analyze(markets, prices, weather_cache, candle_data, news_data, mode='conser
 class Agent:
     def __init__(self):
         self.executor=TradeExecutor(CFG); self.running=False; self.cycle=0
+        self.crypto_ml = MLFilter(CFG.crypto_ml_model_path, CFG.crypto_ml_scaler_path)
+        self.crypto_ml_ready = self.crypto_ml.load() if CFG.crypto_ml_filter_enabled else False
+        if CFG.crypto_ml_filter_enabled:
+            status = 'loaded' if self.crypto_ml_ready else f'unavailable:{self.crypto_ml.load_error}'
+            log.info(f'CRYPTO_ML_FILTER | enabled | {status}')
         signal.signal(signal.SIGINT,self._stop); signal.signal(signal.SIGTERM,self._stop)
         if POLY_BTC_REGISTRY:
             POLY_BTC_REGISTRY.set_executor(self.executor)
     def _stop(self,*a): self.running=False
+    def _ml_gate_crypto_opportunities(self, opps, candle_data, telemetry):
+        if not CFG.crypto_ml_filter_enabled:
+            return opps
+        filtered = []
+        fail_open = self.executor.dry_run and CFG.crypto_ml_fail_open_dry_run
+        for opp in opps:
+            is_crypto = opp.get('sym') in ('CRYPTO', 'BTC_PACK') or str(opp.get('strategy', '')).startswith(('CANDLE', 'BTC_PACK'))
+            if not is_crypto:
+                filtered.append(opp)
+                continue
+            sym = pick_crypto_symbol(opp.get('question', ''))
+            features = (candle_data.get(sym) or {}).get('silverfox_features')
+            if not features:
+                telemetry['rejected_ml_filter'] += 1
+                log.info(f'ML FILTER SKIP | {sym} | missing Silver-Fox feature snapshot')
+                continue
+            approved, prob, reason = self.crypto_ml.approve(
+                features,
+                FEATURE_COLS,
+                threshold=CFG.crypto_ml_approval_threshold,
+                fail_open=fail_open,
+            )
+            opp['ml_prob'] = prob
+            opp['ml_reason'] = reason
+            if approved:
+                if prob is not None:
+                    log.info(f'ML FILTER PASS | {sym} | prob={prob:.3f} | {opp.get("question","")[:60]}')
+                else:
+                    log.info(f'ML FILTER PASS | {sym} | {reason} | fail_open={fail_open}')
+                filtered.append(opp)
+            else:
+                telemetry['rejected_ml_filter'] += 1
+                log.info(f'ML FILTER REJECT | {sym} | {reason} | {opp.get("question","")[:70]}')
+        return filtered
     def run_cycle(self):
         self.cycle+=1
         log.info('='*50+' Cycle #'+str(self.cycle)+' '+datetime.now(timezone.utc).strftime('%H:%M:%S UTC'))
@@ -799,6 +849,22 @@ class Agent:
         mode = manager_profile.get('strategy_mode') or strategy_mode()
         log.info('MANAGER PROFILE: '+manager_profile.get('name', 'runtime-default'))
         log.info('STRATEGY MODE: '+mode)
+
+        # Aggressive -> balanced auto-revert window (3h warmup / lock on profit /
+        # 3-day hard cap). LIVE sessions only so the clock doesn't burn during dry-run.
+        # Adjusts CFG risk limits in place; never trades. See risk_schedule.py
+        if not self.executor.dry_run:
+            try:
+                from risk_schedule import tick as _risk_tick
+                _wpnl = float(self.executor._daily_pnl) + float(self.executor._unrealized_pnl_open())
+                _posture, _why, _changed = _risk_tick(CFG, _wpnl)
+                if _changed or self.cycle == 1:
+                    log.info(
+                        f'RISK WINDOW | posture={_posture} | {_why} | '
+                        f'trade=${CFG.max_trade_usdc} maxpos={CFG.max_open_positions} dayloss=${CFG.max_daily_loss}'
+                    )
+            except Exception as _re:
+                log.warning(f'risk_schedule skipped: {_re}')
 
         prices={s:p for s in ['BTC','ETH'] if (p:=get_price(s))}
 
@@ -817,7 +883,8 @@ class Agent:
                     f'CANDLES | {sym} RA/RSI:{candle_data[sym]["rsi"]} '
                     f'Momentum:{candle_data[sym]["momentum"]}% Trend:{candle_data[sym]["trend"]} '
                     f'MACD:{candle_data[sym]["macd_hist"]} {candle_data[sym]["macd_bias"]} '
-                    f'BB:{candle_data[sym]["bollinger_signal"]} BW:{candle_data[sym]["bollinger_bandwidth"]}'
+                    f'BB:{candle_data[sym]["bollinger_signal"]} BW:{candle_data[sym]["bollinger_bandwidth"]} '
+                    f'SF:{candle_data[sym]["silverfox_signal"]}'
                 )
 
         news_data = {}
@@ -1071,6 +1138,7 @@ class Agent:
                     continue
         else:
             log.info('Found '+str(len(opps))+' real opportunities')
+        opps = self._ml_gate_crypto_opportunities(opps, candle_data, telemetry)
         is_enabled = trading_enabled()
         if not is_enabled:
             log.warning('TRADING DISABLED BY DASHBOARD SWITCH - opportunities monitored only')

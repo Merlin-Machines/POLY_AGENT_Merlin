@@ -31,6 +31,11 @@ class TradingConfig:
     max_hours_to_expiry: float = 48.0  # Focus on 24-48h markets (quick resolution)
     min_our_prob: float = 0.55  # Standard confidence threshold
     max_our_prob: float = 0.95
+    crypto_ml_filter_enabled: bool = os.getenv("CRYPTO_ML_FILTER_ENABLED", "0") == "1"
+    crypto_ml_approval_threshold: float = float(os.getenv("CRYPTO_ML_APPROVAL_THRESHOLD", "0.55"))
+    crypto_ml_model_path: str = os.getenv("CRYPTO_ML_MODEL_PATH", "data/ml_filter.pkl")
+    crypto_ml_scaler_path: str = os.getenv("CRYPTO_ML_SCALER_PATH", "data/ml_scaler.pkl")
+    crypto_ml_fail_open_dry_run: bool = os.getenv("CRYPTO_ML_FAIL_OPEN_DRY_RUN", "1") == "1"
     log_dir: str = "logs"
     data_dir: str = "data"
 
