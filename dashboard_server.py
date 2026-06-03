@@ -389,7 +389,12 @@ class H(BaseHTTPRequestHandler):
                 )
             )
             if isinstance(positions, list):
-                result["rows"] = positions
+                # Show only real, non-dust holdings so the dashboard matches the
+                # Polymarket profile (resolved / $0 positions are hidden there too).
+                DUST_USD = 0.01
+                live_rows = [p for p in positions if (_to_float(p.get("currentValue", 0)) or 0) >= DUST_USD]
+                result["rows"] = live_rows
+                result["open_positions"] = len(live_rows)
                 result["redeemable_count"] = sum(1 for row in positions if row.get("redeemable"))
                 result["mergeable_count"] = sum(1 for row in positions if row.get("mergeable"))
                 result["live_available"] = True
@@ -741,6 +746,7 @@ class H(BaseHTTPRequestHandler):
         live_realized_pnl = None
         live_unrealized_pnl = None
         live_equity = None
+        live_open_positions = None
         wallet = _profile_wallet(env)
         if wallet:
             try:
@@ -751,6 +757,8 @@ class H(BaseHTTPRequestHandler):
                 if isinstance(rows, list):
                     live_realized_pnl = round(sum(_to_float(r.get("realizedPnl", 0)) or 0 for r in rows), 4)
                     live_unrealized_pnl = round(sum(_to_float(r.get("cashPnl", 0)) or 0 for r in rows), 4)
+                    # Real open positions = non-dust holdings, matching the Polymarket profile.
+                    live_open_positions = sum(1 for r in rows if (_to_float(r.get("currentValue", 0)) or 0) >= 0.01)
             except Exception:
                 pass
 
@@ -760,7 +768,7 @@ class H(BaseHTTPRequestHandler):
             "account": env.get("ACCOUNT_NAME", "ACCOUNT"),
             "wallet": env.get("POLY_FUNDER_ADDRESS", ""),
             "total_trades": len(placed),
-            "open_positions": len(positions),
+            "open_positions": live_open_positions if live_open_positions is not None else len(positions),
             "total_deployed": total_val,
             "estimated_pnl": round(realized_pnl, 4),
             "live_realized_pnl": live_realized_pnl,
