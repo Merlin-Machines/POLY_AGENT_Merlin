@@ -444,7 +444,14 @@ def get_price(sym):
 
 def fetch_weather_markets():
     try:
-        markets = POLY_TOOL.get_top_markets(limit=250, tag_slugs=['weather', 'crypto', 'finance', 'bitcoin', 'ethereum'])
+        markets = POLY_TOOL.get_top_markets(limit=250, tag_slugs=['weather', 'crypto', 'finance'])
+        # Merge dedicated BTC/ETH sourcing (recurring price + up/down series) — the
+        # top-by-volume pull alone surfaces almost no crypto markets.
+        try:
+            from agent.crypto_markets import fetch_crypto_markets, merge_markets
+            markets = merge_markets(markets, fetch_crypto_markets())
+        except Exception as _ce:
+            log.warning('crypto_markets merge skipped: ' + str(_ce))
         crypto_n = sum(1 for m in markets if is_crypto_question(m.get('question', '')))
         log.info('Total markets: ' + str(len(markets)) + ' | crypto(btc/eth): ' + str(crypto_n))
         return markets
