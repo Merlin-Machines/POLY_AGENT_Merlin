@@ -1,0 +1,11 @@
+{
+  "horizon": 3,
+  "entry_price": 0.5144252523651222,
+  "rsi_overbought": 68,
+  "rsi_oversold": 26,
+  "kelly_fraction": 0.3182742390557079,
+  "max_drawdown_pct": 21.67616726617322,
+  "cooldown_losses": 5,
+  "_objective_value": -0.053,
+  "_product": "BTC-USD"
+}
