@@ -444,8 +444,9 @@ def get_price(sym):
 
 def fetch_weather_markets():
     try:
-        markets = POLY_TOOL.get_top_markets(limit=120, tag_slugs=['weather', 'crypto', 'finance'])
-        log.info('Total markets: '+str(len(markets)))
+        markets = POLY_TOOL.get_top_markets(limit=250, tag_slugs=['weather', 'crypto', 'finance', 'bitcoin', 'ethereum'])
+        crypto_n = sum(1 for m in markets if is_crypto_question(m.get('question', '')))
+        log.info('Total markets: ' + str(len(markets)) + ' | crypto(btc/eth): ' + str(crypto_n))
         return markets
     except Exception:
         markets=[]

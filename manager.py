@@ -120,30 +120,32 @@ def default_profile(name: str = "runtime-default") -> dict:
             "alignment_required": 3,
         },
         "entry": {
-            "continuous_trading": False,
-            "min_edge_crypto": 0.04,
+            # continuous_trading=True is the biggest churn lever: re-enters on a lower
+            # edge floor when no fresh signal opp exists, so capital keeps rotating.
+            "continuous_trading": True,
+            "min_edge_crypto": 0.03,        # 0.04->0.03: more candidates qualify
             "min_edge_weather": 0.05,
-            "min_prob_crypto": 0.55,
+            "min_prob_crypto": 0.53,        # 0.55->0.53: prob gate was the top reject reason
             "min_prob_weather": 0.60,
-            "max_entries_per_cycle": 3,
+            "max_entries_per_cycle": 4,     # 3->4: allow more new positions per pass
         },
         "positioning": {
-            "base_size_usdc": 1.0,
-            "max_size_usdc": 3.0,
-            "dca_enabled": False,
+            "base_size_usdc": 1.5,          # 1.0->1.5: more meaningful base size
+            "max_size_usdc": 5.0,           # 3.0->5.0: aligns with config cap; edge-scaled
+            "dca_enabled": False,           # kept OFF: DCA adds averaging-down tail risk
             "max_dca_steps": 0,
             "price_improvement_for_dca": 0.03,
         },
         "exits": {
-            "max_hold_minutes": 90,
-            "profit_take_pct": 0.04,
-            "profit_take_min_minutes": 8,
-            "stop_loss_pct": 0.05,
+            "max_hold_minutes": 45,         # 90->45: kills stale holds, forces turnover
+            "profit_take_pct": 0.05,        # 0.04->0.05: slightly better per-trade EV
+            "profit_take_min_minutes": 5,   # 8->5: bank wins faster
+            "stop_loss_pct": 0.06,          # 0.05->0.06: a hair wider so noise doesn't stop us out
             "exit_on_signal_flip": True,
-            "avoid_expiry_minutes": 45,
-            "flat_exit_minutes": 15,
+            "avoid_expiry_minutes": 30,     # 45->30: don't sit idle near expiry as long
+            "flat_exit_minutes": 8,         # 15->8: recycle dead-flat positions fast (key churn lever)
             "require_profit_to_continue": True,
-            "zero_guard_price": 0.08,
+            "zero_guard_price": 0.10,       # 0.08->0.10: bail on collapsing positions sooner
         },
         "goals": {
             "target_profit_by_friday_usdc": 100.0,

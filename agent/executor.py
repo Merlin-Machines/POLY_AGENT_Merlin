@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -55,6 +55,8 @@ class TradeExecutor:
         self.trade_history = []
         self._daily_pnl = 0.0
         self._daily_trades = 0
+        self._consecutive_losses = 0
+        self._loss_cooldown_until: Optional[datetime] = None
         self._today = date.today()
         self._orders_placed_today = 0
         self._orders_closed_today = 0
@@ -365,6 +367,17 @@ class TradeExecutor:
 
         realized = (exit_price - pos.entry_price) * pos.shares
         self._daily_pnl += realized
+        if realized <= 0:
+            self._consecutive_losses += 1
+            _max_cl = int(getattr(self.cfg, "max_consecutive_losses", 0) or 0)
+            if _max_cl and self._consecutive_losses >= _max_cl:
+                _mins = float(getattr(self.cfg, "loss_cooldown_minutes", 20) or 20)
+                self._loss_cooldown_until = datetime.utcnow() + timedelta(minutes=_mins)
+                log.warning(
+                    f"Loss cooldown engaged: {self._consecutive_losses} consecutive losses -> pause {_mins:.0f}m"
+                )
+        else:
+            self._consecutive_losses = 0
         self._profit_by_symbol_bucket[pos.symbol] = round(
             float(self._profit_by_symbol_bucket.get(pos.symbol, 0.0)) + realized,
             6,
@@ -462,6 +475,10 @@ class TradeExecutor:
             self._orders_placed_today = 0
             self._orders_closed_today = 0
             self._today = date.today()
+            self._consecutive_losses = 0
+            self._loss_cooldown_until = None
+        if self._loss_cooldown_until and datetime.utcnow() < self._loss_cooldown_until:
+            return False, "Loss cooldown"
         if self._daily_pnl <= -self.cfg.max_daily_loss:
             return False, "Daily loss limit"
         if self._daily_trades >= self.cfg.max_daily_trades:
