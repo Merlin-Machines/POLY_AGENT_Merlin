@@ -12,9 +12,9 @@ if len(key) != 64:
 print(f"Key OK ({len(key)} chars). Connecting...")
 
 try:
-    from py_clob_client.client import ClobClient
+    from py_clob_client_v2.client import ClobClient
     client = ClobClient(host="https://clob.polymarket.com", chain_id=137, key=key)
-    creds = client.create_or_derive_api_creds()
+    creds = client.create_or_derive_api_key()
     print(f"Creds type: {type(creds)}")
     print(f"Creds: {creds}")
 

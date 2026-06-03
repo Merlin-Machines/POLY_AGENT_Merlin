@@ -55,9 +55,9 @@ def main() -> int:
         return fail("POLY_FUNDER_ADDRESS is required for signature type 1 or 2.")
 
     try:
-        from py_clob_client.client import ClobClient
+        from py_clob_client_v2.client import ClobClient
     except Exception as exc:
-        return fail(f"py_clob_client import failed: {exc}")
+        return fail(f"py_clob_client_v2 import failed: {exc}")
 
     def try_auth(sig_t: int, funder: str):
         try:
@@ -75,7 +75,7 @@ def main() -> int:
                     chain_id=137,
                     key=private_key,
                 )
-            creds_local = c.create_or_derive_api_creds()
+            creds_local = c.create_or_derive_api_key()
             c.set_api_creds(creds_local)
             return True, c, creds_local, None
         except Exception as ex:

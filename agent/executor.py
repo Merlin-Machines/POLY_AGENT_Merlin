@@ -80,7 +80,10 @@ class TradeExecutor:
 
     def _init_client(self):
         try:
-            from py_clob_client.client import ClobClient
+            # CLOB V2 SDK. Polymarket migrated to CLOB v2 on 2026-04-28; the old
+            # py-clob-client (V1) signs orders the old way and the server now rejects
+            # every order with order_version_mismatch. V2 keeps the same init/args.
+            from py_clob_client_v2.client import ClobClient
 
             funder = getattr(self.cfg, "funder_address", "") or None
             raw_sig_type = getattr(self.cfg, "signature_type", None)
@@ -97,14 +100,14 @@ class TradeExecutor:
             else:
                 self.client = ClobClient(host="https://clob.polymarket.com", chain_id=137, key=self.cfg.private_key)
             try:
-                api_creds = self.client.create_or_derive_api_creds()
+                api_creds = self.client.create_or_derive_api_key()  # V2 rename of create_or_derive_api_creds
                 self.client.set_api_creds(api_creds)
                 log.info(f"Polymarket CLOB connected | API creds derived: {api_creds.api_key[:8]}...")
                 self.runtime_health_reason = "live_connected"
             except Exception as cred_err:
                 log.error(f"API creds derivation failed: {cred_err}")
                 if self.cfg.api_key:
-                    from py_clob_client.clob_types import ApiCreds
+                    from py_clob_client_v2 import ApiCreds
 
                     creds = ApiCreds(
                         api_key=self.cfg.api_key,
@@ -202,19 +205,11 @@ class TradeExecutor:
             last_price=opp.best_market_price,
         )
 
-    def _neg_risk_for(self, token_id: str) -> bool:
-        """Whether a token belongs to a neg-risk market. Posting a normal order to a
-        neg-risk market (or vice-versa) fails with `order_version_mismatch` because
-        the order must be signed for the correct exchange contract."""
-        try:
-            return bool(self.client.get_neg_risk(token_id))
-        except Exception as exc:
-            log.warning("get_neg_risk failed (%s...): %s", str(token_id)[:10], exc)
-            return False
-
     def _place_entry_order(self, token_id: str, price: float, shares: float) -> str:
-        from py_clob_client.clob_types import MarketOrderArgs, OrderType, PartialCreateOrderOptions
-        from py_clob_client.order_builder.constants import BUY
+        # CLOB V2: create_market_order auto-resolves tick_size AND neg_risk from
+        # cached market info, so no explicit neg_risk handling is needed.
+        from py_clob_client_v2 import MarketOrderArgs, OrderType
+        from py_clob_client_v2.order_builder.constants import BUY
 
         # Market FOK: buy $amount USDC worth at the best available ask price.
         # This avoids placing limit orders below the actual ask that never fill.
@@ -225,8 +220,7 @@ class TradeExecutor:
             side=BUY,
             order_type=OrderType.FOK,
         )
-        neg_risk = self._neg_risk_for(token_id)
-        order = self.client.create_market_order(order_args, PartialCreateOrderOptions(neg_risk=neg_risk))
+        order = self.client.create_market_order(order_args)
         response = self.client.post_order(order, OrderType.FOK)
         order_id = str(response.get("orderID", ""))
         # Verify the market FOK actually filled — a FOK that can't fill is silently cancelled.
@@ -245,8 +239,8 @@ class TradeExecutor:
         return order_id
 
     def _place_exit_order(self, token_id: str, price: float, shares: float) -> str:
-        from py_clob_client.clob_types import MarketOrderArgs, OrderType, PartialCreateOrderOptions
-        from py_clob_client.order_builder.constants import SELL
+        from py_clob_client_v2 import MarketOrderArgs, OrderType
+        from py_clob_client_v2.order_builder.constants import SELL
         import time
 
         order_args = MarketOrderArgs(
@@ -255,8 +249,7 @@ class TradeExecutor:
             side=SELL,
             order_type=OrderType.FOK,
         )
-        neg_risk = self._neg_risk_for(token_id)
-        order = self.client.create_market_order(order_args, PartialCreateOrderOptions(neg_risk=neg_risk))
+        order = self.client.create_market_order(order_args)
         response = self.client.post_order(order, OrderType.FOK)
         order_id = str(response.get("orderID", ""))
         time.sleep(2.0)
