@@ -1,4 +1,4 @@
-import requests, time, logging, re, json, math, signal, sys
+import requests, time, logging, re, json, math, signal, sys, socket
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -1229,5 +1229,41 @@ class Agent:
             if self.running: time.sleep(CFG.poll_interval)
         log.info('Agent stopped.')
 
-if __name__=='__main__':
+_SINGLE_INSTANCE_SOCK = None
+
+
+def _acquire_single_instance(port: int = 7799) -> bool:
+    """Single-instance lock so two bots can never run at once.
+
+    Plain-English version (for anyone reading this later):
+    When the bot starts it 'grabs a doorknob' — a tiny network port on this
+    computer. Only one hand can hold that doorknob at a time. If a SECOND copy
+    of the bot tries to start, it finds the doorknob already held and politely
+    refuses to start, instead of two bots fighting over the same wallet and
+    files (which is what caused the earlier mess). When the running bot stops,
+    the computer lets go of the doorknob automatically — nothing to clean up.
+    """
+    global _SINGLE_INSTANCE_SOCK
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+        s.listen(1)
+        _SINGLE_INSTANCE_SOCK = s  # keep the socket open = keep holding the lock
+        return True
+    except OSError:
+        try:
+            s.close()
+        except Exception:
+            pass
+        return False
+
+
+if __name__ == '__main__':
+    if not _acquire_single_instance():
+        print("\n*** ANOTHER MERLIN BOT IS ALREADY RUNNING ***")
+        print("Only one bot may run at a time. Close the other bot window,")
+        print("or run STOP_ALL.bat, then start this one again.\n")
+        log.error("single-instance lock: another agent is already running; refusing to start a second copy")
+        sys.exit(1)
+    log.info("single-instance lock acquired (port 7799) | this is the only running bot")
     Agent().run()
