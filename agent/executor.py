@@ -521,6 +521,11 @@ class TradeExecutor:
             )
             or getattr(self.cfg, "max_trade_usdc", opp.trade_size)
         )
+        # Hard cap the order to the configured per-position max, no matter what the
+        # strategy pack proposed — keeps every order inside the bankroll cap so it
+        # can't exceed available free USDC on a small account.
+        if float(opp.trade_size) > max_position_size:
+            opp.trade_size = max_position_size
         shares = self._price_to_shares(opp.best_market_price, opp.trade_size)
         record = self._trade_record(opp, shares)
         min_live_shares = self._minimum_live_exit_shares()

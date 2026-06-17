@@ -307,6 +307,14 @@ def is_crypto_question(text):
     # Avoid false positives like "nETHerlands" while still matching btc/eth markets.
     return bool(re.search(r'\b(btc|bitcoin|eth|ethereum)\b', ql))
 
+# Markets the bot must NEVER trade (user blocklist), matched as case-insensitive
+# substrings of the question. 'gta' blocks "Will bitcoin hit $1m before GTA VI?".
+BLOCKED_QUESTION_SUBSTRINGS = ('gta',)
+
+def is_blocked_market(text):
+    ql = (text or '').lower()
+    return any(b in ql for b in BLOCKED_QUESTION_SUBSTRINGS)
+
 def pick_crypto_symbol(text):
     ql = (text or '').lower()
     return 'BTC' if re.search(r'\b(btc|bitcoin)\b', ql) else 'ETH'
@@ -452,6 +460,11 @@ def fetch_weather_markets():
             markets = merge_markets(markets, fetch_crypto_markets())
         except Exception as _ce:
             log.warning('crypto_markets merge skipped: ' + str(_ce))
+        # Drop blocklisted markets (e.g. GTA VI) so they never reach the strategy pack.
+        _before = len(markets)
+        markets = [m for m in markets if not is_blocked_market(m.get('question', ''))]
+        if len(markets) != _before:
+            log.info('Blocklist removed ' + str(_before - len(markets)) + ' market(s)')
         crypto_n = sum(1 for m in markets if is_crypto_question(m.get('question', '')))
         log.info('Total markets: ' + str(len(markets)) + ' | crypto(btc/eth): ' + str(crypto_n))
         return markets

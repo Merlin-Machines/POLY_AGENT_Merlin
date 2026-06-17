@@ -52,7 +52,7 @@ DEFAULT_CONFIGS: dict[str, dict] = {
         "profit_take_pct": 0.12,
         "max_entry_price": 0.88,
         "max_spread_pct": 0.18,
-        "max_size_usdc": 5.0,
+        "max_size_usdc": 1.5,
         "cooldown_seconds": 300,
         "confirmation_ticks": 0,
         "allow_taker": True,
