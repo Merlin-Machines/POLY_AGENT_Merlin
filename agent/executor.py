@@ -357,6 +357,22 @@ class TradeExecutor:
                     exit_context,
                 )
                 return False
+            # Dead market: no orderbook (resolved/expired). Can't market-exit; stop
+            # retrying it every cycle. Remove from active tracking — if it resolved in
+            # your favor, redeem it manually on Polymarket.
+            if "no orderbook" in err_str.lower() or "orderbook exists" in err_str.lower():
+                record.status = "market_closed_no_book"
+                record.error = err_str
+                pos.status = "market_closed_no_book"
+                self.trade_history.append(record)
+                self.positions.pop(pos.market_id, None)
+                self._save_state()
+                log.warning(
+                    "Exit skipped: market has no orderbook (resolved/expired) — removed from "
+                    "active positions; redeem manually on Polymarket if it won | context=%s",
+                    exit_context,
+                )
+                return False
             record.status = "close_error"
             record.error = err_str
             self.exit_failure_count += 1
