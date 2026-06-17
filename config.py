@@ -21,11 +21,12 @@ class TradingConfig:
     kelly_fraction: float = 0.25  # quarter-Kelly: sizing stays conservative even when active
     # BALANCED-ACTIVE preset (2026-06-03 tune). risk_schedule.py shifts these between
     # an aggressive and a balanced set at runtime; these are the aggressive/baseline values.
-    max_trade_usdc: float = 5.0   # hard cap per market (exposure ceiling per position)
-    min_trade_usdc: float = 0.80  # floor so fills clear min-share thresholds
-    min_liquidity: float = 250.0  # raised from 200: avoids thin books / bad-fill tail risk
-    max_open_positions: int = 8   # lowered from 10: less capital fragmentation, faster rotation
-    max_daily_loss: float = 25.0  # tightened from 30: bankroll preservation under higher churn
+    # Sized for a SMALL (~$8-10) bankroll. Polymarket's order floor is ~$1 notional.
+    max_trade_usdc: float = 1.5   # ~1-2 positions' worth per bet on a tiny account
+    min_trade_usdc: float = 1.0   # must clear Polymarket's ~$1 minimum order
+    min_liquidity: float = 250.0  # avoids thin books / bad-fill tail risk
+    max_open_positions: int = 4   # a few concurrent positions on a small bankroll
+    max_daily_loss: float = 4.0   # must be < total bankroll or it never triggers
     max_daily_trades: int = 60    # raised from 50: headroom for more churn
     max_consecutive_losses: int = 4      # pause new entries after N losing closes in a row
     loss_cooldown_minutes: float = 20.0  # how long to pause once that streak trips

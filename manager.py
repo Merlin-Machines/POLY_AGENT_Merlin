@@ -130,8 +130,8 @@ def default_profile(name: str = "runtime-default") -> dict:
             "max_entries_per_cycle": 4,     # 3->4: allow more new positions per pass
         },
         "positioning": {
-            "base_size_usdc": 1.5,          # 1.0->1.5: more meaningful base size
-            "max_size_usdc": 5.0,           # 3.0->5.0: aligns with config cap; edge-scaled
+            "base_size_usdc": 1.0,          # small bankroll: ~$1 base bet (clears Polymarket min)
+            "max_size_usdc": 1.5,           # cap per bet on a tiny account
             "dca_enabled": False,           # kept OFF: DCA adds averaging-down tail risk
             "max_dca_steps": 0,
             "price_improvement_for_dca": 0.03,

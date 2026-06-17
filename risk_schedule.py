@@ -31,24 +31,24 @@ PROFIT_EPS = 0.0            # realized+unrealized must exceed this to lock in
 
 STATE_PATH = os.path.join("data", "risk_window.json")
 
-# Aggressive = the balanced-active baseline (matches config.py). Higher churn surface.
+# Aggressive = small-bankroll baseline (matches config.py). Polymarket order floor ~$1.
 AGGRESSIVE_LIMITS = {
-    "max_trade_usdc": 5.0,
-    "min_trade_usdc": 0.80,
+    "max_trade_usdc": 1.5,
+    "min_trade_usdc": 1.0,
     "min_liquidity": 250.0,
-    "max_open_positions": 8,
-    "max_daily_loss": 25.0,
+    "max_open_positions": 4,
+    "max_daily_loss": 4.0,
     "max_daily_trades": 60,
     "kelly_fraction": 0.25,
     "min_edge": 0.03,
 }
-# Balanced = roughly half the risk surface, applied once the window locks on profit.
+# Balanced = tighter surface, applied once the window locks on profit.
 BALANCED_LIMITS = {
-    "max_trade_usdc": 2.5,
-    "min_trade_usdc": 0.80,
+    "max_trade_usdc": 1.0,
+    "min_trade_usdc": 1.0,
     "min_liquidity": 400.0,
-    "max_open_positions": 5,
-    "max_daily_loss": 12.0,
+    "max_open_positions": 3,
+    "max_daily_loss": 2.5,
     "max_daily_trades": 25,
     "kelly_fraction": 0.15,
     "min_edge": 0.04,
