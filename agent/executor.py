@@ -345,7 +345,10 @@ class TradeExecutor:
             err_str = str(exc)
             # Phantom position: buy order was placed as limit but never filled — balance is 0 on-chain.
             # Retrying will never succeed; remove from positions so agent can seek new trades.
-            if "balance: 0" in err_str or ("not enough balance" in err_str and "balance: 0" in err_str):
+            # A SELL that fails on balance/allowance means we don't actually hold the
+            # shares on-chain (phantom: the original buy never filled, e.g. dry-run
+            # leftover). Retrying never works — drop it so the bot stops looping on it.
+            if "not enough balance" in err_str or "balance: 0" in err_str or "not enough" in err_str.lower():
                 record.status = "phantom_unfilled"
                 record.error = err_str
                 pos.status = "phantom_unfilled"
@@ -353,7 +356,7 @@ class TradeExecutor:
                 self.positions.pop(pos.market_id, None)
                 self._save_state()
                 log.warning(
-                    "Phantom position detected (buy never filled) — removed | context=%s",
+                    "Phantom position (no sellable shares on-chain) — removed from tracking | context=%s",
                     exit_context,
                 )
                 return False
