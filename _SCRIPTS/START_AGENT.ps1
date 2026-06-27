@@ -14,15 +14,28 @@ $py = "$root\.venv\Scripts\python.exe"
 # Make sure logs\ exists before Start-Process tries to redirect into it.
 New-Item -ItemType Directory -Force -Path "$root\logs" | Out-Null
 
-# Warn loudly if the remote control surface has no password. The tunnel below
-# publishes the LIVE trading controls to the public internet.
+# Remote access provider (read from .env). Default = Tailscale private serve.
+#   tailscale        = Tailscale serve, PRIVATE - only your own tailnet devices
+#   tailscale-public = Tailscale Funnel, PUBLIC internet (permanent URL)
+#   cloudflare       = Cloudflare quick tunnel, PUBLIC internet (random URL)
+#   off              = LAN / same-WiFi only
+$remoteMode = "tailscale"
+if (Test-Path "$root\.env") {
+    $rm = Select-String -Path "$root\.env" -Pattern "^\s*REMOTE_MODE\s*=\s*(\S+)" -ErrorAction SilentlyContinue |
+          Select-Object -First 1
+    if ($rm) { $remoteMode = $rm.Matches[0].Groups[1].Value.ToLower() }
+}
+$remoteIsPublic = ($remoteMode -eq "tailscale-public" -or $remoteMode -eq "cloudflare")
+
+# A missing password only matters when the UI is on the public internet.
+# Private serve is reachable only by your own authenticated tailnet devices.
 $hasPassword = $false
 if (Test-Path "$root\.env") {
     $hasPassword = (Select-String -Path "$root\.env" -Pattern "^\s*MGMT_PASSWORD\s*=\s*\S" -Quiet)
 }
-if (-not $hasPassword) {
-    Write-Host "WARNING: MGMT_PASSWORD is not set in .env." -ForegroundColor Red
-    Write-Host "         The public tunnel will expose the live trading controls with NO password." -ForegroundColor Red
+if ($remoteIsPublic -and -not $hasPassword) {
+    Write-Host "WARNING: MGMT_PASSWORD is not set and REMOTE_MODE is public." -ForegroundColor Red
+    Write-Host "         The live trading controls would be exposed with NO password." -ForegroundColor Red
     Write-Host "         Add MGMT_PASSWORD=yourpassword to .env and re-run to protect it." -ForegroundColor Red
     Write-Host ""
 }
@@ -32,27 +45,35 @@ $agent = Start-Process -FilePath $py -ArgumentList "-m","agent.main" -WorkingDir
 $dash  = Start-Process -FilePath $py -ArgumentList "dashboard_server.py","--mgmt" -WorkingDirectory $root -WindowStyle Hidden -PassThru
 $vault = Start-Process -FilePath $py -ArgumentList "-m","uvicorn","vault_mgmt.app:app","--host","127.0.0.1","--port","8010" -WorkingDirectory $root -WindowStyle Hidden -PassThru
 
-# Remote access provider. Default = Tailscale Funnel (stable, permanent URL).
-# Override with REMOTE_MODE in .env: tailscale | cloudflare | off
-$remoteMode = "tailscale"
-if (Test-Path "$root\.env") {
-    $rm = Select-String -Path "$root\.env" -Pattern "^\s*REMOTE_MODE\s*=\s*(\S+)" -ErrorAction SilentlyContinue |
-          Select-Object -First 1
-    if ($rm) { $remoteMode = $rm.Matches[0].Groups[1].Value.ToLower() }
-}
-
 $url = $null
 $remoteLabel = ""
 
 if ($remoteMode -eq "tailscale") {
-    $remoteLabel = "Tailscale Funnel (permanent URL)"
+    $remoteLabel = "Tailscale serve (PRIVATE - your tailnet devices only)"
     $ts = Get-Command tailscale -ErrorAction SilentlyContinue
     if (-not $ts) {
         Write-Host "Tailscale not found. Run _SCRIPTS\SETUP_REMOTE_TAILSCALE.ps1 once to install + log in." -ForegroundColor Red
     } else {
-        # Publish localhost:7731 on Funnel in the background (persists across runs).
-        Start-Process -FilePath "tailscale" -ArgumentList "funnel","--bg","7731" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
+        # Serve localhost:7731 inside the tailnet only (no public exposure).
+        Start-Process -FilePath "tailscale" -ArgumentList "serve","--bg","7731" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
         # The URL is this machine's stable MagicDNS name; it never changes.
+        try {
+            $dns = (& tailscale status --json 2>$null | ConvertFrom-Json).Self.DNSName
+            if ($dns) { $url = "https://" + $dns.TrimEnd('.') }
+        } catch { $url = $null }
+        if (-not $url) {
+            Write-Host "Serve started but URL not resolved yet. Run: tailscale serve status" -ForegroundColor Yellow
+        }
+    }
+}
+elseif ($remoteMode -eq "tailscale-public") {
+    $remoteLabel = "Tailscale Funnel (PUBLIC permanent URL)"
+    $ts = Get-Command tailscale -ErrorAction SilentlyContinue
+    if (-not $ts) {
+        Write-Host "Tailscale not found. Run _SCRIPTS\SETUP_REMOTE_TAILSCALE.ps1 once to install + log in." -ForegroundColor Red
+    } else {
+        # Publish localhost:7731 on Funnel (public internet, permanent URL).
+        Start-Process -FilePath "tailscale" -ArgumentList "funnel","--bg","7731" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
         try {
             $dns = (& tailscale status --json 2>$null | ConvertFrom-Json).Self.DNSName
             if ($dns) { $url = "https://" + $dns.TrimEnd('.') }
@@ -114,6 +135,9 @@ Write-Host "WiFi:    http://${wifiIp}:7731/mgmt" -ForegroundColor Green
 if ($url) {
     Write-Host "Remote:  $url/mgmt" -ForegroundColor Yellow
     Write-Host "         ^ permanent URL - bookmark it on your phone AND desktop" -ForegroundColor Yellow
+    if ($remoteMode -eq "tailscale") {
+        Write-Host "         (private: the phone needs the Tailscale app, logged into the same account)" -ForegroundColor Yellow
+    }
 } elseif ($remoteMode -eq "off") {
     Write-Host "Remote:  disabled (REMOTE_MODE=off)" -ForegroundColor Yellow
 } else {
@@ -121,7 +145,9 @@ if ($url) {
 }
 if ($hasPassword) {
     Write-Host "Login:   any username + your MGMT_PASSWORD from .env" -ForegroundColor Green
+} elseif ($remoteIsPublic) {
+    Write-Host "Login:   NONE - public remote controls are UNPROTECTED (set MGMT_PASSWORD)" -ForegroundColor Red
 } else {
-    Write-Host "Login:   NONE - remote controls are UNPROTECTED (set MGMT_PASSWORD)" -ForegroundColor Red
+    Write-Host "Login:   no password (fine for private mode - only your tailnet devices can reach it)" -ForegroundColor Green
 }
 Write-Host ""
