@@ -126,6 +126,7 @@
     .btn:hover{border-color:var(--accent);color:var(--accent)}
     .btn.strong{border-color:rgba(0,255,157,.35);color:var(--green)}
     .btn.warn{border-color:rgba(255,208,96,.35);color:var(--gold)}
+    a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:34px}
     .select,.field{
       padding:8px 10px;
       min-height:34px;
@@ -451,6 +452,9 @@
         <div class="subline" id="manager-banner">manager layer online // waiting for state</div>
       </div>
       <div class="top-controls">
+        <div class="control">
+          <a class="btn strong" href="/mgmt">MANAGER &rarr;</a>
+        </div>
         <div class="control">
           <div class="dot" id="status-dot"></div>
           <span class="mode-label" id="mode">DRY RUN</span>

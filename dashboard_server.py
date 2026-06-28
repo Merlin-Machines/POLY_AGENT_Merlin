@@ -1,7 +1,11 @@
+import base64
 import csv
+import hmac
 import io
 import json
+import os
 import re
+import socket
 import sys
 import threading
 import webbrowser
@@ -52,6 +56,33 @@ def _load_env() -> dict:
         k, v = line.split("=", 1)
         env[k.strip()] = v.strip()
     return env
+
+
+def _mgmt_password() -> str:
+    """Password that gates the manager/dashboard when exposed remotely.
+
+    Resolution order: process env first (so START scripts can inject it),
+    then the on-disk .env. Empty/unset means auth is disabled (LAN-only use).
+    """
+    return (os.environ.get("MGMT_PASSWORD") or _load_env().get("MGMT_PASSWORD", "") or "").strip()
+
+
+# Cached at import; the remote tunnel runs for the life of the process, so a
+# password edit means restarting the server anyway.
+MGMT_PASSWORD = _mgmt_password()
+
+
+def _detect_lan_ip() -> str:
+    """Best-effort LAN IP so the 'same WiFi' URL is correct on any machine."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return "127.0.0.1"
 
 
 def _profile_wallet(env: dict) -> str:
@@ -158,6 +189,38 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def _auth_ok(self) -> bool:
+        """True when auth is disabled, or a correct Basic-Auth password is sent.
+
+        Any username is accepted; only the password is checked. The Cloudflare
+        tunnel forwards to localhost, so we cannot trust the client IP to tell
+        remote traffic from local — every request is gated when a password set.
+        """
+        if not MGMT_PASSWORD:
+            return True
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(header[6:]).decode("utf-8", "ignore")
+                _, _, supplied = decoded.partition(":")
+                if hmac.compare_digest(supplied, MGMT_PASSWORD):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def _require_auth(self) -> bool:
+        if self._auth_ok():
+            return True
+        body = b"Authentication required"
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Merlin Manager"')
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
     def _read_json_body(self):
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -170,6 +233,8 @@ class H(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self):
+        if not self._require_auth():
+            return
         parsed = urlparse(self.path)
         routes = {
             "/api/stats": self._stats,
@@ -209,6 +274,8 @@ class H(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        if not self._require_auth():
+            return
         parsed = urlparse(self.path)
         body = self._read_json_body()
         if parsed.path == "/api/manager/propose":
@@ -798,11 +865,27 @@ class H(BaseHTTPRequestHandler):
 def run():
     server = HTTPServer(("0.0.0.0", 7731), H)
     target_path = "/mgmt" if "--mgmt" in sys.argv[1:] else "/"
-    local_ip = "192.168.4.106"
+    local_ip = _detect_lan_ip()
     base_url = "http://localhost:7731"
     print(f"Dashboard at {base_url}")
     print(f"Manager UI at {base_url}/mgmt")
     print(f"Mobile (same WiFi): http://{local_ip}:7731/mgmt")
+
+    # Public tunnel URL, if START_AGENT brought a Cloudflare tunnel up.
+    remote_url = ""
+    try:
+        remote_file = BASE / "logs" / "remote_url.txt"
+        if remote_file.exists():
+            remote_url = remote_file.read_text(encoding="utf-8", errors="ignore").strip()
+    except Exception:
+        remote_url = ""
+    if remote_url:
+        print(f"Remote (anywhere): {remote_url}/mgmt")
+
+    if MGMT_PASSWORD:
+        print("Remote password: ENABLED (Basic Auth — any username + MGMT_PASSWORD from .env)")
+    else:
+        print("Remote password: DISABLED — set MGMT_PASSWORD in .env before exposing a public tunnel")
     try:
         threading.Timer(1.5, lambda: webbrowser.open(base_url + target_path)).start()
     except Exception:
